@@ -1,0 +1,12 @@
+{
+  "name": "anomaly_detector",
+  "version": "0.1.0",
+  "description": "Flag simple personal or business KPI anomalies from deterministic reports.",
+  "mode": "both",
+  "permissions": ["read_reports"],
+  "triggers": ["anomaly", "unusual", "cash risk"],
+  "tools_used": ["get_personal_summary", "get_business_summary"],
+  "requires_confirmation": false,
+  "risk_level": "medium",
+  "entrypoint": "handler.py"
+}

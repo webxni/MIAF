@@ -1,0 +1,12 @@
+{
+  "name": "emergency_fund_planner",
+  "version": "0.1.0",
+  "description": "Build a reserve target from personal cash flow and emergency fund coverage.",
+  "mode": "personal",
+  "permissions": ["read_transactions", "read_reports"],
+  "triggers": ["emergency fund", "cash buffer", "reserve target"],
+  "tools_used": ["get_personal_summary"],
+  "requires_confirmation": false,
+  "risk_level": "low",
+  "entrypoint": "handler.py"
+}

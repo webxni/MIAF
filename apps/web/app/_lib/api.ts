@@ -23,6 +23,21 @@ export type Entity = {
   currency: string;
 };
 
+export type SkillManifest = {
+  name: string;
+  version: string;
+  description: string;
+  mode: "personal" | "business" | "both";
+  permissions: string[];
+  triggers: string[];
+  tools_used: string[];
+  requires_confirmation: boolean;
+  risk_level: "low" | "medium" | "high";
+  entrypoint: string;
+  builtin: boolean;
+  enabled: boolean;
+};
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "/api";
 
 async function parseError(res: Response): Promise<string> {
@@ -70,4 +85,8 @@ export async function me(): Promise<User> {
 
 export async function entities(): Promise<Entity[]> {
   return apiFetch<Entity[]>("/entities");
+}
+
+export async function listSkills(): Promise<SkillManifest[]> {
+  return apiFetch<SkillManifest[]>("/skills");
 }

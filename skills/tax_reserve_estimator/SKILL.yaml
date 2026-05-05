@@ -1,0 +1,12 @@
+{
+  "name": "tax_reserve_estimator",
+  "version": "0.1.0",
+  "description": "Surface the latest tax reserve estimate and reserve gap context.",
+  "mode": "business",
+  "permissions": ["read_reports"],
+  "triggers": ["tax reserve", "estimated tax", "reserve gap"],
+  "tools_used": ["get_business_summary"],
+  "requires_confirmation": false,
+  "risk_level": "medium",
+  "entrypoint": "handler.py"
+}

@@ -1,0 +1,12 @@
+{
+  "name": "ar_collector",
+  "version": "0.1.0",
+  "description": "Summarize overdue receivables for collection follow-up.",
+  "mode": "business",
+  "permissions": ["read_reports", "send_messages"],
+  "triggers": ["collect receivables", "overdue invoices", "ar follow-up"],
+  "tools_used": ["get_business_summary"],
+  "requires_confirmation": false,
+  "risk_level": "medium",
+  "entrypoint": "handler.py"
+}

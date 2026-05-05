@@ -1,0 +1,1 @@
+{"name":"ap_scheduler","version":"0.1.0","description":"Summarize overdue payables for scheduling and cash protection.","mode":"business","permissions":["read_reports","send_messages"],"triggers":["payables","ap schedule","overdue bills"],"tools_used":["get_business_summary"],"requires_confirmation":false,"risk_level":"medium","entrypoint":"handler.py"}

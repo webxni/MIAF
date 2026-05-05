@@ -1,0 +1,1 @@
+{"name":"business_health_advisor","version":"0.1.0","description":"Summarize business health from deterministic cash, AR, AP, and income KPIs.","mode":"business","permissions":["read_transactions","read_reports"],"triggers":["business health","cash runway","ar ap"],"tools_used":["get_business_summary"],"requires_confirmation":false,"risk_level":"medium","entrypoint":"handler.py"}

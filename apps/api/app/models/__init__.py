@@ -66,6 +66,7 @@ from app.models.memory import (
 )
 from app.models.net_worth import NetWorthSnapshot
 from app.models.session import Session
+from app.models.skill import SkillRunLog, SkillState
 from app.models.source_transaction import SourceTransaction, SourceTransactionStatus
 from app.models.tenant import Tenant
 from app.models.user import User
@@ -128,6 +129,8 @@ __all__ = [
     "ReportKind",
     "Role",
     "Session",
+    "SkillRunLog",
+    "SkillState",
     "SourceTransaction",
     "SourceTransactionStatus",
     "CandidateStatus",

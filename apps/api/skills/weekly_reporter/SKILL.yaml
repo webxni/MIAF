@@ -1,0 +1,1 @@
+{"name":"weekly_reporter","version":"0.1.0","description":"Surface the latest generated weekly report for review or delivery.","mode":"both","permissions":["read_reports","send_messages"],"triggers":["weekly report","send report","latest report"],"tools_used":["get_business_summary"],"requires_confirmation":false,"risk_level":"low","entrypoint":"handler.py"}

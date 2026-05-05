@@ -1,0 +1,1 @@
+{"name":"debt_payoff_planner","version":"0.1.0","description":"Order active debts for payoff planning using deterministic balances and APRs.","mode":"personal","permissions":["read_transactions","read_reports"],"triggers":["debt payoff","debt plan","avalanche"],"tools_used":["create_debt_plan"],"requires_confirmation":false,"risk_level":"low","entrypoint":"handler.py"}

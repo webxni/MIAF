@@ -1,0 +1,12 @@
+{
+  "name": "personal_budget_coach",
+  "version": "0.1.0",
+  "description": "Coach budget review using current overspends and saved budgeting preferences.",
+  "mode": "personal",
+  "permissions": ["read_transactions", "read_memory", "read_reports"],
+  "triggers": ["budget", "overspend", "spending coach"],
+  "tools_used": ["search_memory"],
+  "requires_confirmation": false,
+  "risk_level": "low",
+  "entrypoint": "handler.py"
+}

@@ -1,0 +1,1 @@
+{"name":"transaction_classifier","version":"0.1.0","description":"Suggest a mode and coarse category for a transaction description.","mode":"both","permissions":["read_transactions"],"triggers":["classify transaction","categorize","expense type"],"tools_used":["classify_transaction"],"requires_confirmation":false,"risk_level":"low","entrypoint":"handler.py"}

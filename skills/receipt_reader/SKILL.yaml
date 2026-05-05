@@ -1,0 +1,12 @@
+{
+  "name": "receipt_reader",
+  "version": "0.1.0",
+  "description": "Normalize receipt extraction fields for downstream review.",
+  "mode": "both",
+  "permissions": ["read_documents"],
+  "triggers": ["receipt", "merchant", "ocr"],
+  "tools_used": ["read_document"],
+  "requires_confirmation": false,
+  "risk_level": "low",
+  "entrypoint": "handler.py"
+}

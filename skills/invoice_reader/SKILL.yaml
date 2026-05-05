@@ -1,0 +1,12 @@
+{
+  "name": "invoice_reader",
+  "version": "0.1.0",
+  "description": "Normalize invoice extraction fields for business review.",
+  "mode": "business",
+  "permissions": ["read_documents"],
+  "triggers": ["invoice", "bill pdf", "vendor invoice"],
+  "tools_used": ["read_document"],
+  "requires_confirmation": false,
+  "risk_level": "low",
+  "entrypoint": "handler.py"
+}

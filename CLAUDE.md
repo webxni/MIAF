@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository status
 
-This repo is active and already has Phases 0, 1, 2, 3, 4, an initial Phase 5 web slice, an initial Phase 6 agent-core slice, an initial Phase 7 memory backend slice, and an initial Phase 8 heartbeat/scheduler backend slice landed.
+This repo is active and already has Phases 0, 1, 2, 3, 4, an initial Phase 5 web slice, an initial Phase 6 agent-core slice, an initial Phase 7 memory backend slice, an initial Phase 8 heartbeat/scheduler backend slice, and a Phase 9 skills engine slice landed.
 
 - Phase 0: Docker-first monorepo, compose stack, health checks, Makefile, backup container.
 - Phase 1: accounting core with auth, tenant/entity RBAC, accounts, journal entries, post/void, ledger, trial balance, audit logging, seed data, and tests.
@@ -15,6 +15,7 @@ This repo is active and already has Phases 0, 1, 2, 3, 4, an initial Phase 5 web
 - Phase 6: agent backend slice now exists with `app/api/agent.py`, `app/services/agent.py`, and `app/schemas/agent.py`; it provides an audited `/api/agent/chat` endpoint, typed tool registry, heuristic provider abstraction, policy/confirmation gates, and tests for personal-expense drafting/posting, business invoice drafting, balance-sheet explanation, and personal-vs-business comparison.
 - Phase 7: memory backend slice now exists with `app/models/memory.py`, `app/services/memory.py`, `app/schemas/memory.py`, `app/api/memory.py`, and migration `0005_memory.py`; it provides consent-gated durable memory creation, deterministic search, review/expire/forget flows, append-only memory events, deterministic embeddings metadata, and tests.
 - Phase 8: heartbeat backend slice now exists with `app/models/heartbeat.py`, `app/services/heartbeat.py`, `app/schemas/heartbeat.py`, `app/api/heartbeat.py`, migration `0006_heartbeat_ops.py`, and a scheduler hook in `services/scheduler/scheduler/main.py`; it provides persistent heartbeat runs, alerts, generated reports, manual run endpoints, token-protected internal scheduled execution, and tests.
+- Phase 9: skills engine slice now exists with `app/models/skill.py`, `app/services/skills.py`, `app/schemas/skill.py`, `app/api/skills.py`, migration `0007_skills_engine.py`, built-in skill manifests under repo-root `skills/` plus runtime-visible mirrors under `apps/api/skills/`, a web `Skills` page, and tests for manifest loading, toggles, execution logs, and permission enforcement.
 
 Treat `FinClaw.md` as the product contract and this file as the current repo-state memo. Do not assume the repo is empty.
 
@@ -150,6 +151,10 @@ API surface (Phases 1-6 backend):
 * `GET /api/heartbeat/alerts`.
 * `GET /api/heartbeat/reports`.
 * `POST /api/internal/heartbeat/run-defaults` with `x-automation-token`.
+* `GET /api/skills`.
+* `POST /api/skills/{skill_name}/state`.
+* `POST /api/skills/{skill_name}/run`.
+* `GET /api/skills/runs`.
 
 Default seed credentials (dev only): `owner@example.com` / `change-me-on-first-login`. Override via `SEED_USER_EMAIL`, `SEED_USER_PASSWORD` env vars.
 
@@ -189,7 +194,7 @@ Phase 4 status:
 
 Phase 5 status:
 * Web files live under `apps/web/app`.
-* Current route coverage includes `/login`, `/dashboard`, `/personal`, `/business`, `/documents`, `/settings`, `/audit-log`, and placeholder anchors for budget/goals/debts/investments/accounts/ledger/invoices/bills/reports.
+* Current route coverage includes `/login`, `/dashboard`, `/personal`, `/business`, `/documents`, `/skills`, `/settings`, `/audit-log`, and placeholder anchors for budget/goals/debts/investments/accounts/ledger/invoices/bills/reports.
 * The app shell includes sidebar navigation, entity switcher, and logout flow.
 * `documents/page.tsx` uploads receipts and CSV files into Phase 4 endpoints.
 * The Next production build is currently failing in-container during prerender. Do not claim Phase 5 complete until `docker compose exec -T web npm run build` passes.
@@ -219,5 +224,16 @@ Phase 8 status:
 * Weekly business reports are stored in `generated_reports` as markdown text.
 * The scheduler no longer just logs `tick`; it now POSTs to the internal heartbeat endpoint using `API_HEARTBEAT_URL` and `AUTOMATION_TOKEN`.
 * Tests for the heartbeat slice live in `apps/api/tests/test_heartbeat.py`.
+
+Phase 9 status:
+* Skill models live in `app/models/skill.py`: `SkillState` and `SkillRunLog`.
+* Skill service logic lives in `app/services/skills.py`; API lives in `app/api/skills.py`; payloads live in `app/schemas/skill.py`; migration is `0007_skills_engine.py`.
+* Built-in skills currently registered include `receipt_reader`, `invoice_reader`, `transaction_classifier`, `personal_budget_coach`, `emergency_fund_planner`, `debt_payoff_planner`, `investment_allocator`, `business_health_advisor`, `ar_collector`, `ap_scheduler`, `tax_reserve_estimator`, `monthly_close_assistant`, `anomaly_detector`, and `weekly_reporter`.
+* Skills load during API startup. The loader checks both repo-root `skills/` and `apps/api/skills/` because the dev `api` container bind-mounts only `./apps/api`.
+* Built-in skills default to enabled; tenant-specific enable/disable state persists in `skill_states`.
+* Skill executions are persisted in `skill_run_logs` with inputs, outputs, declared permissions, version, entity/user scope, and result status.
+* Declared permissions are validated at load time and enforced by the built-in execution paths before they call finance, memory, document, or reporting services.
+* The web scaffold now includes `/skills`, which lists installed skills and their permissions/triggers. The broader Next production build blocker from Phase 5 still remains unresolved.
+* Tests for the skills slice live in `apps/api/tests/test_skills.py`.
 
 Before recommending or running a Make target, prefer `make help` (it prints the live target list parsed from the `Makefile`) over trusting this table — the Makefile is authoritative.

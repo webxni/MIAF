@@ -1,0 +1,1 @@
+{"name":"monthly_close_assistant","version":"0.1.0","description":"Expose the deterministic closing checklist for the selected business entity.","mode":"business","permissions":["read_reports"],"triggers":["monthly close","closing checklist","close books"],"tools_used":["get_business_summary"],"requires_confirmation":false,"risk_level":"medium","entrypoint":"handler.py"}

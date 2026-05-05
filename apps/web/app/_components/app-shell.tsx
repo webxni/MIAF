@@ -11,6 +11,7 @@ const NAV: NavItem[] = [
   { href: "/personal", label: "Personal" },
   { href: "/business", label: "Business" },
   { href: "/documents", label: "Documents" },
+  { href: "/skills", label: "Skills" },
   { href: "/settings", label: "Settings" },
   { href: "/audit-log", label: "Audit Log" },
 ];
