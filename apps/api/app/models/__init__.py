@@ -26,6 +26,14 @@ from app.models.business import (
 from app.models.debt import Debt, DebtKind, DebtStatus
 from app.models.entity import Entity, EntityMember, EntityMode, Role
 from app.models.goal import Goal, GoalKind, GoalStatus
+from app.models.ingestion import (
+    CandidateStatus,
+    DocumentExtraction,
+    ExtractionCandidate,
+    ExtractionStatus,
+    ImportBatch,
+    ImportBatchStatus,
+)
 from app.models.investment import (
     HoldingKind,
     InvestmentAccount,
@@ -63,10 +71,14 @@ __all__ = [
     "Entity",
     "EntityMember",
     "EntityMode",
+    "ExtractionCandidate",
+    "ExtractionStatus",
     "Goal",
     "GoalKind",
     "GoalStatus",
     "HoldingKind",
+    "ImportBatch",
+    "ImportBatchStatus",
     "InvestmentAccount",
     "InvestmentAccountKind",
     "InvestmentHolding",
@@ -75,6 +87,7 @@ __all__ = [
     "JournalEntry",
     "JournalEntryStatus",
     "JournalLine",
+    "DocumentExtraction",
     "NetWorthSnapshot",
     "NormalSide",
     "Payment",
@@ -83,6 +96,7 @@ __all__ = [
     "Session",
     "SourceTransaction",
     "SourceTransactionStatus",
+    "CandidateStatus",
     "TaxRate",
     "TaxReserve",
     "Tenant",

@@ -4,12 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository status
 
-This repo is active and already has Phases 0, 1, 2, and an initial Phase 3 backend slice landed.
+This repo is active and already has Phases 0, 1, 2, 3, and an initial Phase 4 backend slice landed.
 
 - Phase 0: Docker-first monorepo, compose stack, health checks, Makefile, backup container.
 - Phase 1: accounting core with auth, tenant/entity RBAC, accounts, journal entries, post/void, ledger, trial balance, audit logging, seed data, and tests.
 - Phase 2: personal finance backend with models + migration for budgets, goals, debts, investment accounts/holdings, and net worth snapshots; personal CRUD/reporting endpoints; deterministic personal dashboard KPIs; budget-vs-actuals; persisted net worth snapshots; tests.
 - Phase 3: business backend with models + migration for customers, vendors, invoices, invoice lines, bills, bill lines, payments, tax rates, tax reserves, and closing periods; business CRUD/posting/payment flows; AR aging, AP aging, balance sheet, income statement, cash flow, dashboard, and closing checklist; tests.
+- Phase 4: ingestion backend slice with models + migration for import batches, document extractions, and extraction candidates; attachment-backed receipt upload; deterministic text receipt extraction for merchant/date/total with field confidence; candidate approval into draft journal entries; CSV import into `source_transactions`; signed download URL endpoint; tests.
 
 Treat `FinClaw.md` as the product contract and this file as the current repo-state memo. Do not assume the repo is empty.
 
@@ -99,7 +100,7 @@ Health endpoints (proxied by Caddy under `/api`):
 * `GET /api/health` — liveness, returns `{"status":"ok"}`.
 * `GET /api/health/ready` — readiness, probes postgres (incl. pgvector), redis, and minio.
 
-API surface (Phases 1-3 backend):
+API surface (Phases 1-4 backend):
 
 * `POST /api/auth/login` `{email, password}` → sets httpOnly `finclaw_session` cookie.
 * `POST /api/auth/logout`, `GET /api/auth/me`.
@@ -131,6 +132,10 @@ API surface (Phases 1-3 backend):
 * `GET/POST /api/entities/{id}/business/tax-rates`.
 * `GET/POST /api/entities/{id}/business/tax-reserves`.
 * `GET/POST /api/entities/{id}/business/closing-periods`.
+* `POST /api/entities/{id}/documents/receipts` multipart upload.
+* `POST /api/entities/{id}/documents/csv-imports` multipart upload.
+* `POST /api/entities/{id}/documents/extraction-candidates/{candidate_id}/approve`.
+* `GET /api/entities/{id}/documents/attachments/{attachment_id}/download-url`.
 
 Default seed credentials (dev only): `owner@example.com` / `change-me-on-first-login`. Override via `SEED_USER_EMAIL`, `SEED_USER_PASSWORD` env vars.
 
@@ -159,5 +164,13 @@ Phase 3 status:
 * AR/AP aging is computed from open posted/partial invoices and bills using `balance_due` and due dates.
 * Balance sheet, income statement, cash flow, and dashboard are deterministic and derive from posted ledger balances.
 * Tax reserve reports must still be labeled as estimates until jurisdiction-specific tax logic exists.
+
+Phase 4 status:
+* Ingestion models live in `app/models/ingestion.py`; service logic lives in `app/services/ingestion.py`; API lives in `app/api/documents.py`.
+* File storage currently uses existing `attachments` as the persisted file record; the phase-specific metadata tables are `import_batches`, `document_extractions`, and `extraction_candidates`.
+* Receipt extraction is currently deterministic text parsing, not full binary OCR. Tests use text receipts; future work can plug Tesseract into the same extraction model.
+* Candidate approval creates a draft journal entry linked back to the `source_transaction` and updates the attachment to keep the original document attached.
+* CSV import creates `source_transactions` with `kind="csv_row"` and marks batch counts in `import_batches`.
+* Signed download URLs are generated through MinIO presigned URLs; audit file access through the document routes.
 
 Before recommending or running a Make target, prefer `make help` (it prints the live target list parsed from the `Makefile`) over trusting this table — the Makefile is authoritative.

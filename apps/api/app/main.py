@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from app.api.accounts import router as accounts_router
 from app.api.auth import router as auth_router
 from app.api.business import router as business_router
+from app.api.documents import router as documents_router
 from app.api.entities import router as entities_router
 from app.api.journal import router as journal_router
 from app.api.ledger import router as ledger_router
@@ -45,6 +46,7 @@ app.include_router(journal_router)
 app.include_router(ledger_router)
 app.include_router(personal_router)
 app.include_router(business_router)
+app.include_router(documents_router)
 
 
 @app.get("/", tags=["meta"])
