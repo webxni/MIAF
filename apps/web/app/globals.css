@@ -3,9 +3,36 @@
 @tailwind utilities;
 
 :root {
-  color-scheme: light dark;
+  color-scheme: light;
+  --surface: #f5f1e8;
+  --panel: #fffdfa;
+  --line: #d7cfbf;
+  --ink: #1c1c17;
+  --muted: #706a5d;
+  --accent: #0f766e;
+  --accent-ink: #f5fffd;
+  --hero: linear-gradient(160deg, #14281d 0%, #1f4d3e 45%, #274c77 100%);
+  --hero-ink: #f8f7f3;
+  --hero-copy: rgba(248, 247, 243, 0.8);
+  --hero-accent: #b8f2e6;
+  --danger-bg: #fff0f0;
+  --danger-line: #efb6b6;
+  --danger-ink: #8f1d1d;
+  --warn-bg: #fff7e7;
+  --warn-line: #e4c98f;
+  --warn-ink: #7d5b13;
+  font-family: var(--font-sans, "IBM Plex Sans", "Segoe UI", sans-serif);
 }
 
-html, body {
+html,
+body {
   height: 100%;
+}
+
+body {
+  margin: 0;
+}
+
+.font-serif {
+  font-family: Georgia, "Times New Roman", serif;
 }

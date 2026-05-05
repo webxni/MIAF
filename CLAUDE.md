@@ -4,13 +4,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository status
 
-This repo is active and already has Phases 0, 1, 2, 3, and an initial Phase 4 backend slice landed.
+This repo is active and already has Phases 0, 1, 2, 3, 4, an initial Phase 5 web slice, and an initial Phase 6 agent-core slice landed.
 
 - Phase 0: Docker-first monorepo, compose stack, health checks, Makefile, backup container.
 - Phase 1: accounting core with auth, tenant/entity RBAC, accounts, journal entries, post/void, ledger, trial balance, audit logging, seed data, and tests.
 - Phase 2: personal finance backend with models + migration for budgets, goals, debts, investment accounts/holdings, and net worth snapshots; personal CRUD/reporting endpoints; deterministic personal dashboard KPIs; budget-vs-actuals; persisted net worth snapshots; tests.
 - Phase 3: business backend with models + migration for customers, vendors, invoices, invoice lines, bills, bill lines, payments, tax rates, tax reserves, and closing periods; business CRUD/posting/payment flows; AR aging, AP aging, balance sheet, income statement, cash flow, dashboard, and closing checklist; tests.
 - Phase 4: ingestion backend slice with models + migration for import batches, document extractions, and extraction candidates; attachment-backed receipt upload; deterministic text receipt extraction for merchant/date/total with field confidence; candidate approval into draft journal entries; CSV import into `source_transactions`; signed download URL endpoint; tests.
+- Phase 5: web app now has protected route scaffolding, login, dashboard/personal/business/documents/settings/audit pages, shared shell/components, and placeholder route anchors for the deeper views. The current blocker is a Next.js prerender/runtime failure inside the container build (`docker compose exec -T web npm run build`) showing `TypeError: Cannot read properties of null (reading 'useContext')` during static page generation plus the built-in `/500` path complaining about `<Html>` outside `_document`. Treat this as an unresolved frontend build issue, not as finished Phase 5 acceptance.
+- Phase 6: agent backend slice now exists with `app/api/agent.py`, `app/services/agent.py`, and `app/schemas/agent.py`; it provides an audited `/api/agent/chat` endpoint, typed tool registry, heuristic provider abstraction, policy/confirmation gates, and tests for personal-expense drafting/posting, business invoice drafting, balance-sheet explanation, and personal-vs-business comparison.
 
 Treat `FinClaw.md` as the product contract and this file as the current repo-state memo. Do not assume the repo is empty.
 
@@ -100,7 +102,7 @@ Health endpoints (proxied by Caddy under `/api`):
 * `GET /api/health` — liveness, returns `{"status":"ok"}`.
 * `GET /api/health/ready` — readiness, probes postgres (incl. pgvector), redis, and minio.
 
-API surface (Phases 1-4 backend):
+API surface (Phases 1-6 backend):
 
 * `POST /api/auth/login` `{email, password}` → sets httpOnly `finclaw_session` cookie.
 * `POST /api/auth/logout`, `GET /api/auth/me`.
@@ -136,6 +138,7 @@ API surface (Phases 1-4 backend):
 * `POST /api/entities/{id}/documents/csv-imports` multipart upload.
 * `POST /api/entities/{id}/documents/extraction-candidates/{candidate_id}/approve`.
 * `GET /api/entities/{id}/documents/attachments/{attachment_id}/download-url`.
+* `POST /api/agent/chat`.
 
 Default seed credentials (dev only): `owner@example.com` / `change-me-on-first-login`. Override via `SEED_USER_EMAIL`, `SEED_USER_PASSWORD` env vars.
 
@@ -172,5 +175,20 @@ Phase 4 status:
 * Candidate approval creates a draft journal entry linked back to the `source_transaction` and updates the attachment to keep the original document attached.
 * CSV import creates `source_transactions` with `kind="csv_row"` and marks batch counts in `import_batches`.
 * Signed download URLs are generated through MinIO presigned URLs; audit file access through the document routes.
+
+Phase 5 status:
+* Web files live under `apps/web/app`.
+* Current route coverage includes `/login`, `/dashboard`, `/personal`, `/business`, `/documents`, `/settings`, `/audit-log`, and placeholder anchors for budget/goals/debts/investments/accounts/ledger/invoices/bills/reports.
+* The app shell includes sidebar navigation, entity switcher, and logout flow.
+* `documents/page.tsx` uploads receipts and CSV files into Phase 4 endpoints.
+* The Next production build is currently failing in-container during prerender. Do not claim Phase 5 complete until `docker compose exec -T web npm run build` passes.
+
+Phase 6 status:
+* Agent route lives in `app/api/agent.py`; core service lives in `app/services/agent.py`; payloads live in `app/schemas/agent.py`.
+* Providers currently share a deterministic heuristic planning path through `HeuristicProvider`, `OpenAIProvider`, `AnthropicProvider`, and `GeminiProvider`. This keeps the interface in place without requiring external API calls during local development.
+* The tool registry is typed with Pydantic and currently implements: `create_journal_entry_draft`, `post_journal_entry`, `create_personal_expense`, `create_invoice`, `get_personal_summary`, `get_business_summary`, `get_balance_sheet`, `get_income_statement`, `get_cash_flow`, `suggest_emergency_fund_plan`, `suggest_investment_allocation`, and `explain_transaction`.
+* Stubbed later-phase tools currently return `status="not_implemented"` rather than pretending memory/automation already exists.
+* `PolicyEngine` blocks forbidden real-money / trade actions. `ConfirmationEngine` requires confirmation for sensitive posting/payment-style tools. Audit logs record prompts and tool calls with redaction.
+* Tests for the agent core live in `apps/api/tests/test_agent_core.py`.
 
 Before recommending or running a Make target, prefer `make help` (it prints the live target list parsed from the `Makefile`) over trusting this table — the Makefile is authoritative.
