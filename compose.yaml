@@ -1,0 +1,216 @@
+name: finclaw
+
+networks:
+  finclaw:
+    name: finclaw_internal
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
+  backup_data:
+  caddy_data:
+  caddy_config:
+  web_node_modules:
+  web_next_cache:
+
+services:
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: finclaw-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-finclaw}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:-finclaw}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/docker/postgres/init.sql:/docker-entrypoint-initdb.d/00-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [finclaw]
+
+  redis:
+    image: redis:7-alpine
+    container_name: finclaw-redis
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+    command: ["sh", "-c", "redis-server --appendonly yes --requirepass \"$$REDIS_PASSWORD\""]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [finclaw]
+
+  minio:
+    image: minio/minio:RELEASE.2024-12-13T22-19-12Z
+    container_name: finclaw-minio
+    restart: unless-stopped
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER is required}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required}
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    ports:
+      # Dev only: bind MinIO console to localhost so the developer can browse buckets.
+      # The S3 API (9000) stays internal-only.
+      - "127.0.0.1:9001:9001"
+    networks: [finclaw]
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      target: dev
+    image: finclaw-api:dev
+    container_name: finclaw-api
+    restart: unless-stopped
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY is required}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-finclaw}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-finclaw}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      MINIO_BUCKET: ${MINIO_BUCKET:-finclaw}
+      MINIO_SECURE: "false"
+    volumes:
+      - ./apps/api:/srv/api
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0) if urllib.request.urlopen('http://localhost:8000/health', timeout=2).status==200 else sys.exit(1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks: [finclaw]
+
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+      target: dev
+    image: finclaw-web:dev
+    container_name: finclaw-web
+    restart: unless-stopped
+    environment:
+      NODE_ENV: development
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-/api}
+      # Bind dev server to all interfaces so Caddy can reach it
+      HOSTNAME: 0.0.0.0
+      PORT: "3000"
+    volumes:
+      - ./apps/web:/srv/web
+      - web_node_modules:/srv/web/node_modules
+      - web_next_cache:/srv/web/.next
+    depends_on:
+      - api
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://localhost:3000 >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+    networks: [finclaw]
+
+  worker:
+    build:
+      context: .
+      dockerfile: services/worker/Dockerfile
+    image: finclaw-worker:dev
+    container_name: finclaw-worker
+    restart: unless-stopped
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-finclaw}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-finclaw}
+    volumes:
+      - ./services/worker:/srv/worker
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks: [finclaw]
+
+  scheduler:
+    build:
+      context: .
+      dockerfile: services/scheduler/Dockerfile
+    image: finclaw-scheduler:dev
+    container_name: finclaw-scheduler
+    restart: unless-stopped
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-finclaw}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-finclaw}
+      HEARTBEAT_INTERVAL_SECONDS: ${HEARTBEAT_INTERVAL_SECONDS:-300}
+    volumes:
+      - ./services/scheduler:/srv/scheduler
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks: [finclaw]
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: finclaw-caddy
+    restart: unless-stopped
+    environment:
+      CADDY_DOMAIN: ${CADDY_DOMAIN:-localhost}
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      - ./infra/docker/caddy/Caddyfile.dev:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+      - web
+    networks: [finclaw]
+
+  backup:
+    build:
+      context: ./infra/docker/backup
+    image: finclaw-backup:dev
+    container_name: finclaw-backup
+    restart: unless-stopped
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: ${POSTGRES_USER:-finclaw}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-finclaw}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-7}
+    volumes:
+      - backup_data:/backups
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [finclaw]

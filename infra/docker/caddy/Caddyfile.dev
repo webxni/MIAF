@@ -1,0 +1,19 @@
+# Dev Caddy: HTTP only on :80, no automatic HTTPS.
+{
+	auto_https off
+	admin off
+}
+
+:80 {
+	encode zstd gzip
+
+	# API: strip the /api prefix before reverse-proxying.
+	handle_path /api/* {
+		reverse_proxy api:8000
+	}
+
+	# Everything else: Next.js dev server.
+	handle {
+		reverse_proxy web:3000
+	}
+}

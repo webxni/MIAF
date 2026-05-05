@@ -1,0 +1,66 @@
+# Production overlay. Apply with:
+#   docker compose -f compose.yaml -f compose.prod.yaml up -d --build
+#
+# This overlay:
+#   - drops dev source mounts so the image is the source of truth
+#   - removes the MinIO console host port binding
+#   - switches Caddy to a real domain (CADDY_DOMAIN) with auto HTTPS
+#   - builds api/web in production mode (no --reload, Next.js prebuilt)
+#   - tightens restart policies
+#
+# `!reset` and `!override` are Compose merge directives that *replace*
+# upstream values instead of merging into them. Without them, the dev
+# `volumes:` and `ports:` lists would be additive.
+
+services:
+
+  postgres:
+    restart: always
+
+  redis:
+    restart: always
+
+  minio:
+    restart: always
+    # Internal-only in production. Console is not published.
+    ports: !reset []
+
+  api:
+    build:
+      target: prod
+    image: finclaw-api:prod
+    restart: always
+    environment:
+      ENVIRONMENT: production
+    # Code is baked into the image; drop the dev bind mount.
+    volumes: !reset []
+
+  web:
+    build:
+      target: prod
+    image: finclaw-web:prod
+    restart: always
+    environment:
+      NODE_ENV: production
+    volumes: !reset []
+
+  worker:
+    image: finclaw-worker:prod
+    restart: always
+    volumes: !reset []
+
+  scheduler:
+    image: finclaw-scheduler:prod
+    restart: always
+    volumes: !reset []
+
+  caddy:
+    restart: always
+    volumes: !override
+      - ./infra/docker/caddy/Caddyfile.prod:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+  backup:
+    image: finclaw-backup:prod
+    restart: always

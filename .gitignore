@@ -1,0 +1,49 @@
+# Env / secrets
+.env
+.env.local
+.env.*.local
+*.local
+secrets/
+*.pem
+*.key
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+venv/
+.eggs/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+.next/
+out/
+*.log
+npm-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Local Docker volume bind targets, if any
+data/
+volumes/
+
+# DB dumps
+*.sql.gz
+*.dump
+*.tar.gz
