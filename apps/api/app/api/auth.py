@@ -4,9 +4,17 @@ from fastapi import APIRouter, Response, status
 
 from app.api.deps import DB, CurrentUserDep, RequestCtx
 from app.config import get_settings
+from app.errors import AuthError
 from app.schemas.auth import LoginRequest, UserOut
 from app.services.audit import write_audit
-from app.services.auth import authenticate_user, create_session, revoke_session
+from app.services.auth import (
+    authenticate_user,
+    check_login_rate_limit,
+    create_session,
+    find_user_by_email,
+    record_login_attempt,
+    revoke_session,
+)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -14,7 +22,43 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 @router.post("/login", response_model=UserOut)
 async def login(payload: LoginRequest, response: Response, db: DB, ctx: RequestCtx) -> UserOut:
     settings = get_settings()
-    user = await authenticate_user(db, payload.email, payload.password)
+    await check_login_rate_limit(db, email=payload.email, ip=ctx.ip)
+    try:
+        user = await authenticate_user(db, payload.email, payload.password)
+    except AuthError as exc:
+        user = await find_user_by_email(db, payload.email)
+        await record_login_attempt(
+            db,
+            email=payload.email,
+            ip=ctx.ip,
+            user_agent=ctx.user_agent,
+            was_successful=False,
+            user=user,
+            failure_reason=getattr(exc, "code", "login_failed"),
+        )
+        if user is not None:
+            await write_audit(
+                db,
+                tenant_id=user.tenant_id,
+                user_id=user.id,
+                entity_id=None,
+                action="login_failed",
+                object_type="session",
+                object_id=None,
+                after={"email": payload.email.lower(), "reason": getattr(exc, "code", "login_failed")},
+                ip=ctx.ip,
+                user_agent=ctx.user_agent,
+            )
+        raise
+
+    await record_login_attempt(
+        db,
+        email=payload.email,
+        ip=ctx.ip,
+        user_agent=ctx.user_agent,
+        was_successful=True,
+        user=user,
+    )
     session, token = await create_session(db, user, ip=ctx.ip, user_agent=ctx.user_agent)
 
     response.set_cookie(

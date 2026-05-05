@@ -26,10 +26,17 @@ class Settings(BaseSettings):
     # Auth / sessions
     session_cookie_name: str = Field(default="finclaw_session", alias="SESSION_COOKIE_NAME")
     session_ttl_hours: int = Field(default=24 * 14, alias="SESSION_TTL_HOURS")  # 14 days
+    cors_allow_origins: str = Field(default="http://localhost:3000,http://127.0.0.1:3000", alias="CORS_ALLOW_ORIGINS")
+    login_rate_limit_window_minutes: int = Field(default=15, alias="LOGIN_RATE_LIMIT_WINDOW_MINUTES")
+    login_rate_limit_attempts: int = Field(default=5, alias="LOGIN_RATE_LIMIT_ATTEMPTS")
 
     @property
     def session_cookie_secure(self) -> bool:
         return self.environment == "production"
+
+    @property
+    def cors_allow_origins_list(self) -> list[str]:
+        return [item.strip() for item in self.cors_allow_origins.split(",") if item.strip()]
 
 
 @lru_cache(maxsize=1)

@@ -4,12 +4,12 @@ from __future__ import annotations
 import uuid
 from datetime import timedelta
 
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.errors import AuthError
-from app.models import Session, User
+from app.models import LoginAttempt, Session, User
 from app.models.base import utcnow
 from app.security import (
     generate_session_token,
@@ -29,6 +29,53 @@ async def authenticate_user(db: AsyncSession, email: str, password: str) -> User
     if not verify_password(password, user.password_hash):
         raise AuthError("Invalid credentials", code="invalid_credentials")
     return user
+
+
+async def find_user_by_email(db: AsyncSession, email: str) -> User | None:
+    email_norm = email.strip().lower()
+    return (
+        await db.execute(select(User).where(User.email == email_norm))
+    ).scalar_one_or_none()
+
+
+async def check_login_rate_limit(db: AsyncSession, *, email: str, ip: str | None) -> None:
+    settings = get_settings()
+    since = utcnow() - timedelta(minutes=settings.login_rate_limit_window_minutes)
+    email_norm = email.strip().lower()
+    filters = [
+        LoginAttempt.was_successful.is_(False),
+        LoginAttempt.created_at >= since,
+        or_(LoginAttempt.email == email_norm, LoginAttempt.ip == ip if ip else LoginAttempt.email == email_norm),
+    ]
+    recent_failures = (
+        await db.execute(select(func.count(LoginAttempt.id)).where(*filters))
+    ).scalar_one()
+    if recent_failures >= settings.login_rate_limit_attempts:
+        raise AuthError("Too many login attempts. Try again later.", code="login_rate_limited")
+
+
+async def record_login_attempt(
+    db: AsyncSession,
+    *,
+    email: str,
+    ip: str | None,
+    user_agent: str | None,
+    was_successful: bool,
+    user: User | None = None,
+    failure_reason: str | None = None,
+) -> LoginAttempt:
+    row = LoginAttempt(
+        tenant_id=user.tenant_id if user is not None else None,
+        user_id=user.id if user is not None else None,
+        email=email.strip().lower(),
+        ip=ip,
+        user_agent=(user_agent or "")[:512] or None,
+        was_successful=was_successful,
+        failure_reason=failure_reason,
+    )
+    db.add(row)
+    await db.flush()
+    return row
 
 
 async def create_session(

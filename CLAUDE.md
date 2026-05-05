@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository status
 
-This repo is active and already has Phases 0, 1, 2, 3, 4, an initial Phase 5 web slice, an initial Phase 6 agent-core slice, an initial Phase 7 memory backend slice, an initial Phase 8 heartbeat/scheduler backend slice, a Phase 9 skills engine slice, a Phase 10 Telegram backend slice, and a Phase 11 reporting/analysis slice landed.
+This repo is active and already has Phases 0, 1, 2, 3, 4, an initial Phase 5 web slice, an initial Phase 6 agent-core slice, an initial Phase 7 memory backend slice, an initial Phase 8 heartbeat/scheduler backend slice, a Phase 9 skills engine slice, a Phase 10 Telegram backend slice, a Phase 11 reporting/analysis slice, and a first Phase 12 security-hardening slice landed.
 
 - Phase 0: Docker-first monorepo, compose stack, health checks, Makefile, backup container.
 - Phase 1: accounting core with auth, tenant/entity RBAC, accounts, journal entries, post/void, ledger, trial balance, audit logging, seed data, and tests.
@@ -18,6 +18,7 @@ This repo is active and already has Phases 0, 1, 2, 3, 4, an initial Phase 5 web
 - Phase 9: skills engine slice now exists with `app/models/skill.py`, `app/services/skills.py`, `app/schemas/skill.py`, `app/api/skills.py`, migration `0007_skills_engine.py`, built-in skill manifests under repo-root `skills/` plus runtime-visible mirrors under `apps/api/skills/`, a web `Skills` page, and tests for manifest loading, toggles, execution logs, and permission enforcement.
 - Phase 10: Telegram backend slice now exists with `app/models/telegram.py`, `app/services/telegram.py`, `app/schemas/telegram.py`, `app/api/telegram.py`, migration `0008_telegram.py`, and tests for allowlisted routing, personal/business flows, receipt uploads, and summary commands.
 - Phase 11: reporting/analysis slice now extends the personal and business report services with debt payoff plans, emergency fund plans, investment allocation summaries, business dependency reports, revenue-by-customer, expenses-by-vendor, gross margin, runway, tax reserve reports, and deterministic explanation endpoints that cite internal facts; tests cover both personal and business analytic reports.
+- Phase 12: security-hardening slice now adds explicit CORS allowlist config, login-attempt persistence, login throttling, successful/failed login attempt recording, and failed-login audit coverage for known users.
 
 Treat `FinClaw.md` as the product contract and this file as the current repo-state memo. Do not assume the repo is empty.
 
@@ -277,5 +278,14 @@ Phase 11 status:
 * Explanation endpoints now exist for personal net-worth change, personal spending trends, business profitability, and business cash-flow risk. They return prose plus `cited_facts` built from deterministic report values; they do not call an external model.
 * Debt records that are not linked to liability accounts still do not alter ledger-derived net worth. This is intentional and matches the hard rule that report figures come from deterministic accounting state.
 * Tests for the Phase 11 slice live in the extended `apps/api/tests/test_personal_dashboard.py` and `apps/api/tests/test_business_reports.py`.
+
+Phase 12 status:
+* Login-attempt persistence lives in `app/models/security.py` with migration `0009_login_attempts.py`.
+* Auth hardening currently records every successful login and every failed login attempt in `login_attempts`, including IP and user agent metadata.
+* Failed logins for known users also write normal audit logs with `action="login_failed"`.
+* The login route now enforces a simple rate limit based on recent failed attempts by email/IP before password verification continues.
+* API startup now installs `CORSMiddleware` using the `CORS_ALLOW_ORIGINS` setting.
+* This is only a first Phase 12 slice. Backup execution/restore verification, export auditing, and stronger cross-endpoint rate limits are still outstanding future work.
+* Tests for this slice live in `apps/api/tests/test_auth_security.py`.
 
 Before recommending or running a Make target, prefer `make help` (it prints the live target list parsed from the `Makefile`) over trusting this table — the Makefile is authoritative.

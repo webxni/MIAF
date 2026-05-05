@@ -65,6 +65,7 @@ from app.models.memory import (
     MemoryType,
 )
 from app.models.net_worth import NetWorthSnapshot
+from app.models.security import LoginAttempt
 from app.models.session import Session
 from app.models.skill import SkillRunLog, SkillState
 from app.models.source_transaction import SourceTransaction, SourceTransactionStatus
@@ -118,6 +119,7 @@ __all__ = [
     "JournalEntry",
     "JournalEntryStatus",
     "JournalLine",
+    "LoginAttempt",
     "Alert",
     "AlertSeverity",
     "AlertStatus",
