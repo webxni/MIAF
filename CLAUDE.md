@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository status
 
-This repo is active and already has Phases 0, 1, 2, 3, 4, an initial Phase 5 web slice, an initial Phase 6 agent-core slice, an initial Phase 7 memory backend slice, an initial Phase 8 heartbeat/scheduler backend slice, and a Phase 9 skills engine slice landed.
+This repo is active and already has Phases 0, 1, 2, 3, 4, an initial Phase 5 web slice, an initial Phase 6 agent-core slice, an initial Phase 7 memory backend slice, an initial Phase 8 heartbeat/scheduler backend slice, a Phase 9 skills engine slice, and a Phase 10 Telegram backend slice landed.
 
 - Phase 0: Docker-first monorepo, compose stack, health checks, Makefile, backup container.
 - Phase 1: accounting core with auth, tenant/entity RBAC, accounts, journal entries, post/void, ledger, trial balance, audit logging, seed data, and tests.
@@ -16,6 +16,7 @@ This repo is active and already has Phases 0, 1, 2, 3, 4, an initial Phase 5 web
 - Phase 7: memory backend slice now exists with `app/models/memory.py`, `app/services/memory.py`, `app/schemas/memory.py`, `app/api/memory.py`, and migration `0005_memory.py`; it provides consent-gated durable memory creation, deterministic search, review/expire/forget flows, append-only memory events, deterministic embeddings metadata, and tests.
 - Phase 8: heartbeat backend slice now exists with `app/models/heartbeat.py`, `app/services/heartbeat.py`, `app/schemas/heartbeat.py`, `app/api/heartbeat.py`, migration `0006_heartbeat_ops.py`, and a scheduler hook in `services/scheduler/scheduler/main.py`; it provides persistent heartbeat runs, alerts, generated reports, manual run endpoints, token-protected internal scheduled execution, and tests.
 - Phase 9: skills engine slice now exists with `app/models/skill.py`, `app/services/skills.py`, `app/schemas/skill.py`, `app/api/skills.py`, migration `0007_skills_engine.py`, built-in skill manifests under repo-root `skills/` plus runtime-visible mirrors under `apps/api/skills/`, a web `Skills` page, and tests for manifest loading, toggles, execution logs, and permission enforcement.
+- Phase 10: Telegram backend slice now exists with `app/models/telegram.py`, `app/services/telegram.py`, `app/schemas/telegram.py`, `app/api/telegram.py`, migration `0008_telegram.py`, and tests for allowlisted routing, personal/business flows, receipt uploads, and summary commands.
 
 Treat `FinClaw.md` as the product contract and this file as the current repo-state memo. Do not assume the repo is empty.
 
@@ -155,6 +156,10 @@ API surface (Phases 1-6 backend):
 * `POST /api/skills/{skill_name}/state`.
 * `POST /api/skills/{skill_name}/run`.
 * `GET /api/skills/runs`.
+* `GET /api/telegram/links`.
+* `POST /api/telegram/links`.
+* `GET /api/telegram/messages`.
+* `POST /api/telegram/webhook`.
 
 Default seed credentials (dev only): `owner@example.com` / `change-me-on-first-login`. Override via `SEED_USER_EMAIL`, `SEED_USER_PASSWORD` env vars.
 
@@ -235,5 +240,17 @@ Phase 9 status:
 * Declared permissions are validated at load time and enforced by the built-in execution paths before they call finance, memory, document, or reporting services.
 * The web scaffold now includes `/skills`, which lists installed skills and their permissions/triggers. The broader Next production build blocker from Phase 5 still remains unresolved.
 * Tests for the skills slice live in `apps/api/tests/test_skills.py`.
+
+Phase 10 status:
+* Telegram models live in `app/models/telegram.py`: `TelegramLink` and `TelegramMessage`, plus enums for direction, type, and status.
+* Telegram service logic lives in `app/services/telegram.py`; API lives in `app/api/telegram.py`; payloads live in `app/schemas/telegram.py`; migration is `0008_telegram.py`.
+* Telegram access is allowlist-based: a `telegram_links` row must exist for the inbound `telegram_user_id` + `telegram_chat_id`, otherwise the webhook rejects the message and logs a rejected outbound reply.
+* The link record stores both personal and business entity IDs plus an active mode so `/personal` and `/business` can switch routing deterministically without cross-tenant lookups.
+* Inbound and outbound chat traffic is persisted in `telegram_messages` with direction, message type, status, text/file metadata, and raw payload JSON.
+* Implemented Telegram commands are `/start`, `/personal`, `/business`, `/summary`, `/budget`, `/cash`, and `/help`.
+* Known text requests fall through to the existing agent for personal chat flows; business expense phrases like `El negocio pagó $150 de internet.` are drafted directly into balanced business journal entries and left unposted pending confirmation elsewhere in the product.
+* Image/PDF uploads are accepted and acknowledged as queued document-review items; voice notes are persisted and acknowledged with a transcription-placeholder reply.
+* A simple per-link rate limit is enforced from the persisted message log. Authorized inbound/outbound processing writes normal audit logs with `object_type="telegram_message"`.
+* Tests for the Telegram slice live in `apps/api/tests/test_telegram.py`.
 
 Before recommending or running a Make target, prefer `make help` (it prints the live target list parsed from the `Makefile`) over trusting this table — the Makefile is authoritative.

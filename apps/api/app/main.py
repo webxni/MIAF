@@ -16,6 +16,7 @@ from app.api.ledger import router as ledger_router
 from app.api.memory import router as memory_router
 from app.api.personal import router as personal_router
 from app.api.skills import router as skills_router
+from app.api.telegram import router as telegram_router
 from app.config import get_settings
 from app.errors import install_error_handlers
 from app.health import router as health_router
@@ -60,6 +61,7 @@ app.include_router(memory_router)
 app.include_router(heartbeat_router)
 app.include_router(internal_heartbeat_router)
 app.include_router(skills_router)
+app.include_router(telegram_router)
 
 
 @app.get("/", tags=["meta"])

@@ -69,6 +69,13 @@ from app.models.session import Session
 from app.models.skill import SkillRunLog, SkillState
 from app.models.source_transaction import SourceTransaction, SourceTransactionStatus
 from app.models.tenant import Tenant
+from app.models.telegram import (
+    TelegramLink,
+    TelegramMessage,
+    TelegramMessageDirection,
+    TelegramMessageStatus,
+    TelegramMessageType,
+)
 from app.models.user import User
 
 __all__ = [
@@ -137,6 +144,11 @@ __all__ = [
     "TaxRate",
     "TaxReserve",
     "Tenant",
+    "TelegramLink",
+    "TelegramMessage",
+    "TelegramMessageDirection",
+    "TelegramMessageStatus",
+    "TelegramMessageType",
     "User",
     "Vendor",
 ]
