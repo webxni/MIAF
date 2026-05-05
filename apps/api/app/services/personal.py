@@ -18,6 +18,7 @@ from app.models import (
     Budget,
     BudgetLine,
     Debt,
+    DebtStatus,
     Entity,
     EntityMode,
     Goal,
@@ -39,12 +40,17 @@ from app.schemas.personal import (
     BusinessDependencyOut,
     CashFlowAccountRow,
     CashFlowSummaryOut,
+    DebtPayoffPlanOut,
+    DebtPayoffRow,
     DebtCreate,
     DebtUpdate,
+    EmergencyFundPlanOut,
+    ExplanationOut,
     GoalCreate,
     GoalProgressOut,
     GoalUpdate,
     InvestmentAccountCreate,
+    InvestmentAllocationSummaryOut,
     InvestmentAccountUpdate,
     InvestmentAllocationRow,
     InvestmentHoldingIn,
@@ -736,6 +742,133 @@ async def personal_dashboard(
         goal_progress=goal_progress,
         investment_disclaimer=INVESTMENT_DISCLAIMER,
     )
+
+
+async def net_worth_statement(db: AsyncSession, *, entity_id: uuid.UUID, as_of: date) -> NetWorthSnapshotOut:
+    snapshot = await create_net_worth_snapshot(db, entity_id=entity_id, as_of=as_of)
+    return NetWorthSnapshotOut.model_validate(snapshot)
+
+
+async def monthly_cash_flow_report(
+    db: AsyncSession,
+    *,
+    entity_id: uuid.UUID,
+    as_of: date,
+) -> CashFlowSummaryOut:
+    dashboard = await personal_dashboard(db, entity_id=entity_id, as_of=as_of)
+    return dashboard.cash_flow
+
+
+async def debt_payoff_plan(db: AsyncSession, *, entity_id: uuid.UUID, as_of: date) -> DebtPayoffPlanOut:
+    await _get_personal_entity(db, entity_id)
+    debts = await list_debts(db, entity_id=entity_id)
+    ordered = sorted(
+        [debt for debt in debts if debt.status == DebtStatus.active],
+        key=lambda item: ((item.interest_rate_apr or ZERO), item.current_balance),
+        reverse=True,
+    )
+    rows = [
+        DebtPayoffRow(
+            debt_id=debt.id,
+            name=debt.name,
+            current_balance=to_money(debt.current_balance),
+            interest_rate_apr=to_money(debt.interest_rate_apr or ZERO),
+            minimum_payment=to_money(debt.minimum_payment or ZERO),
+        )
+        for debt in ordered
+    ]
+    total_debt = to_money(sum((row.current_balance for row in rows), ZERO))
+    return DebtPayoffPlanOut(
+        entity_id=entity_id,
+        as_of=as_of,
+        strategy="avalanche",
+        total_debt=total_debt,
+        debts=rows,
+    )
+
+
+async def emergency_fund_plan(db: AsyncSession, *, entity_id: uuid.UUID, as_of: date) -> EmergencyFundPlanOut:
+    dashboard = await personal_dashboard(db, entity_id=entity_id, as_of=as_of)
+    target_min = to_money(dashboard.monthly_expenses * Decimal("3"))
+    target_ideal = to_money(dashboard.monthly_expenses * Decimal("6"))
+    return EmergencyFundPlanOut(
+        entity_id=entity_id,
+        as_of=as_of,
+        current_fund_balance=dashboard.emergency_fund_balance,
+        monthly_expenses=dashboard.monthly_expenses,
+        target_min_balance=target_min,
+        target_ideal_balance=target_ideal,
+        gap_to_minimum=to_money(max(target_min - dashboard.emergency_fund_balance, ZERO)),
+        gap_to_ideal=to_money(max(target_ideal - dashboard.emergency_fund_balance, ZERO)),
+        current_coverage_months=dashboard.emergency_fund_months,
+    )
+
+
+async def investment_allocation_summary(
+    db: AsyncSession,
+    *,
+    entity_id: uuid.UUID,
+    as_of: date,
+) -> InvestmentAllocationSummaryOut:
+    dashboard = await personal_dashboard(db, entity_id=entity_id, as_of=as_of)
+    return InvestmentAllocationSummaryOut(
+        entity_id=entity_id,
+        as_of=as_of,
+        investment_value=dashboard.investment_value,
+        allocation=dashboard.investment_allocation,
+        disclaimer=dashboard.investment_disclaimer,
+    )
+
+
+async def explain_net_worth_change(
+    db: AsyncSession,
+    *,
+    entity_id: uuid.UUID,
+    date_from: date,
+    date_to: date,
+) -> ExplanationOut:
+    start = await net_worth_statement(db, entity_id=entity_id, as_of=date_from)
+    end = await net_worth_statement(db, entity_id=entity_id, as_of=date_to)
+    delta = to_money(end.net_worth - start.net_worth)
+    facts = [
+        f"Net worth on {date_from.isoformat()} was {start.net_worth}",
+        f"Net worth on {date_to.isoformat()} was {end.net_worth}",
+        f"Change in net worth was {delta}",
+    ]
+    explanation = (
+        f"Net worth changed from {start.net_worth} on {date_from.isoformat()} to {end.net_worth} "
+        f"on {date_to.isoformat()}, a change of {delta}. The movement reflects changes in tracked assets and liabilities."
+    )
+    return ExplanationOut(entity_id=entity_id, explanation=explanation, cited_facts=facts)
+
+
+async def explain_spending_trends(
+    db: AsyncSession,
+    *,
+    entity_id: uuid.UUID,
+    as_of: date,
+) -> ExplanationOut:
+    current = await personal_dashboard(db, entity_id=entity_id, as_of=as_of)
+    previous_month_end = current.month_start - date.resolution
+    previous = await personal_dashboard(db, entity_id=entity_id, as_of=previous_month_end)
+    current_total = current.monthly_expenses
+    previous_total = previous.monthly_expenses
+    delta = to_money(current_total - previous_total)
+    top_current = current.spending_by_category[0] if current.spending_by_category else None
+    facts = [
+        f"Current monthly expenses were {current_total}",
+        f"Previous monthly expenses were {previous_total}",
+        f"Expense change was {delta}",
+    ]
+    if top_current is not None:
+        facts.append(f"Top current category was {top_current.account_name} at {top_current.amount}")
+    explanation = (
+        f"Spending trends for {current.month_start.isoformat()} to {current.month_end.isoformat()} show "
+        f"expenses of {current_total} versus {previous_total} in the prior month, a change of {delta}."
+    )
+    if top_current is not None:
+        explanation += f" The largest current category is {top_current.account_name} at {top_current.amount}."
+    return ExplanationOut(entity_id=entity_id, explanation=explanation, cited_facts=facts)
 
 
 async def create_net_worth_snapshot(

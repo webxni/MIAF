@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository status
 
-This repo is active and already has Phases 0, 1, 2, 3, 4, an initial Phase 5 web slice, an initial Phase 6 agent-core slice, an initial Phase 7 memory backend slice, an initial Phase 8 heartbeat/scheduler backend slice, a Phase 9 skills engine slice, and a Phase 10 Telegram backend slice landed.
+This repo is active and already has Phases 0, 1, 2, 3, 4, an initial Phase 5 web slice, an initial Phase 6 agent-core slice, an initial Phase 7 memory backend slice, an initial Phase 8 heartbeat/scheduler backend slice, a Phase 9 skills engine slice, a Phase 10 Telegram backend slice, and a Phase 11 reporting/analysis slice landed.
 
 - Phase 0: Docker-first monorepo, compose stack, health checks, Makefile, backup container.
 - Phase 1: accounting core with auth, tenant/entity RBAC, accounts, journal entries, post/void, ledger, trial balance, audit logging, seed data, and tests.
@@ -17,6 +17,7 @@ This repo is active and already has Phases 0, 1, 2, 3, 4, an initial Phase 5 web
 - Phase 8: heartbeat backend slice now exists with `app/models/heartbeat.py`, `app/services/heartbeat.py`, `app/schemas/heartbeat.py`, `app/api/heartbeat.py`, migration `0006_heartbeat_ops.py`, and a scheduler hook in `services/scheduler/scheduler/main.py`; it provides persistent heartbeat runs, alerts, generated reports, manual run endpoints, token-protected internal scheduled execution, and tests.
 - Phase 9: skills engine slice now exists with `app/models/skill.py`, `app/services/skills.py`, `app/schemas/skill.py`, `app/api/skills.py`, migration `0007_skills_engine.py`, built-in skill manifests under repo-root `skills/` plus runtime-visible mirrors under `apps/api/skills/`, a web `Skills` page, and tests for manifest loading, toggles, execution logs, and permission enforcement.
 - Phase 10: Telegram backend slice now exists with `app/models/telegram.py`, `app/services/telegram.py`, `app/schemas/telegram.py`, `app/api/telegram.py`, migration `0008_telegram.py`, and tests for allowlisted routing, personal/business flows, receipt uploads, and summary commands.
+- Phase 11: reporting/analysis slice now extends the personal and business report services with debt payoff plans, emergency fund plans, investment allocation summaries, business dependency reports, revenue-by-customer, expenses-by-vendor, gross margin, runway, tax reserve reports, and deterministic explanation endpoints that cite internal facts; tests cover both personal and business analytic reports.
 
 Treat `FinClaw.md` as the product contract and this file as the current repo-state memo. Do not assume the repo is empty.
 
@@ -160,6 +161,21 @@ API surface (Phases 1-6 backend):
 * `POST /api/telegram/links`.
 * `GET /api/telegram/messages`.
 * `POST /api/telegram/webhook`.
+* `GET /api/entities/{id}/personal/reports/net-worth?as_of=...`.
+* `GET /api/entities/{id}/personal/reports/monthly-cash-flow?as_of=...`.
+* `GET /api/entities/{id}/personal/reports/debt-payoff-plan?as_of=...`.
+* `GET /api/entities/{id}/personal/reports/emergency-fund-plan?as_of=...`.
+* `GET /api/entities/{id}/personal/reports/investment-allocation?as_of=...`.
+* `GET /api/entities/{id}/personal/reports/business-dependency?as_of=...`.
+* `GET /api/entities/{id}/personal/reports/net-worth-change-explanation?date_from=...&date_to=...`.
+* `GET /api/entities/{id}/personal/reports/spending-trends-explanation?as_of=...`.
+* `GET /api/entities/{id}/business/reports/revenue-by-customer?date_from=...&date_to=...`.
+* `GET /api/entities/{id}/business/reports/expenses-by-vendor?date_from=...&date_to=...`.
+* `GET /api/entities/{id}/business/reports/gross-margin?date_from=...&date_to=...`.
+* `GET /api/entities/{id}/business/reports/runway?as_of=...`.
+* `GET /api/entities/{id}/business/reports/tax-reserve?as_of=...`.
+* `GET /api/entities/{id}/business/reports/profitability-explanation?date_from=...&date_to=...`.
+* `GET /api/entities/{id}/business/reports/cash-flow-risk-explanation?as_of=...`.
 
 Default seed credentials (dev only): `owner@example.com` / `change-me-on-first-login`. Override via `SEED_USER_EMAIL`, `SEED_USER_PASSWORD` env vars.
 
@@ -252,5 +268,14 @@ Phase 10 status:
 * Image/PDF uploads are accepted and acknowledged as queued document-review items; voice notes are persisted and acknowledged with a transcription-placeholder reply.
 * A simple per-link rate limit is enforced from the persisted message log. Authorized inbound/outbound processing writes normal audit logs with `object_type="telegram_message"`.
 * Tests for the Telegram slice live in `apps/api/tests/test_telegram.py`.
+
+Phase 11 status:
+* Personal report extensions live in `app/services/personal.py` and are exposed from `app/api/personal.py`.
+* Business report extensions live in `app/services/business.py` and are exposed from `app/api/business.py`.
+* New personal deterministic reports include net worth statements, monthly cash-flow summaries, debt payoff plans, emergency fund plans, investment allocation summaries, and explicit business-dependency reports.
+* New business deterministic reports include revenue by customer, expenses by vendor, gross margin, runway, and tax reserve reports.
+* Explanation endpoints now exist for personal net-worth change, personal spending trends, business profitability, and business cash-flow risk. They return prose plus `cited_facts` built from deterministic report values; they do not call an external model.
+* Debt records that are not linked to liability accounts still do not alter ledger-derived net worth. This is intentional and matches the hard rule that report figures come from deterministic accounting state.
+* Tests for the Phase 11 slice live in the extended `apps/api/tests/test_personal_dashboard.py` and `apps/api/tests/test_business_reports.py`.
 
 Before recommending or running a Make target, prefer `make help` (it prints the live target list parsed from the `Makefile`) over trusting this table — the Makefile is authoritative.

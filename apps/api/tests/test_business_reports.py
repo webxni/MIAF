@@ -19,10 +19,17 @@ from app.services.business import (
     create_customer,
     create_invoice,
     create_vendor,
+    explain_business_profitability,
+    explain_cash_flow_risk,
+    expenses_by_vendor,
+    gross_margin_report,
     income_statement,
     post_bill,
     post_invoice,
     record_payment,
+    revenue_by_customer,
+    runway_report,
+    tax_reserve_report,
 )
 
 pytestmark = pytest.mark.asyncio
@@ -182,3 +189,70 @@ async def test_business_statements_derive_from_posted_ledger(seeded, db):
     assert dashboard.accounts_receivable == Decimal("0.00")
     assert dashboard.accounts_payable == Decimal("300.00")
     assert dashboard.monthly_net_income == Decimal("700.00")
+
+
+async def test_business_advanced_reports_and_explanations(seeded, db):
+    entity_id = uuid.UUID(seeded["business_entity_id"])
+    user_id = uuid.UUID(seeded["user_id"])
+    accounts = await _accounts(db, entity_id)
+
+    customer = await create_customer(db, entity_id=entity_id, payload=CustomerCreate(name="Northwind"))
+    invoice = await create_invoice(
+        db,
+        entity_id=entity_id,
+        payload=InvoiceCreate(
+            customer_id=customer.id,
+            number="INV-003",
+            invoice_date=date(2026, 5, 1),
+            due_date=date(2026, 5, 20),
+            lines=[{"description": "Product sale", "quantity": "1", "unit_price": "1200.00", "revenue_account_id": accounts["4100"].id}],
+        ),
+    )
+    await post_invoice(db, invoice, user_id=user_id, confirmed=True)
+
+    vendor = await create_vendor(db, entity_id=entity_id, payload=VendorCreate(name="Supplier Co"))
+    cogs_bill = await create_bill(
+        db,
+        entity_id=entity_id,
+        payload=BillCreate(
+            vendor_id=vendor.id,
+            number="BILL-COGS-001",
+            bill_date=date(2026, 5, 2),
+            due_date=date(2026, 5, 10),
+            lines=[{"description": "Inventory cost", "quantity": "1", "unit_price": "500.00", "expense_account_id": accounts["5100"].id}],
+        ),
+    )
+    await post_bill(db, cogs_bill, user_id=user_id, confirmed=True)
+
+    overhead_vendor = await create_vendor(db, entity_id=entity_id, payload=VendorCreate(name="Landlord"))
+    overhead_bill = await create_bill(
+        db,
+        entity_id=entity_id,
+        payload=BillCreate(
+            vendor_id=overhead_vendor.id,
+            number="BILL-RENT-003",
+            bill_date=date(2026, 5, 3),
+            due_date=date(2026, 5, 25),
+            lines=[{"description": "Rent", "quantity": "1", "unit_price": "200.00", "expense_account_id": accounts["6100"].id}],
+        ),
+    )
+    await post_bill(db, overhead_bill, user_id=user_id, confirmed=True)
+
+    revenue = await revenue_by_customer(db, entity_id=entity_id, date_from=date(2026, 5, 1), date_to=date(2026, 5, 31))
+    expenses = await expenses_by_vendor(db, entity_id=entity_id, date_from=date(2026, 5, 1), date_to=date(2026, 5, 31))
+    gross = await gross_margin_report(db, entity_id=entity_id, date_from=date(2026, 5, 1), date_to=date(2026, 5, 31))
+    runway = await runway_report(db, entity_id=entity_id, as_of=date(2026, 5, 31))
+    reserve = await tax_reserve_report(db, entity_id=entity_id, as_of=date(2026, 5, 31))
+    profitability = await explain_business_profitability(db, entity_id=entity_id, date_from=date(2026, 5, 1), date_to=date(2026, 5, 31))
+    cash_risk = await explain_cash_flow_risk(db, entity_id=entity_id, as_of=date(2026, 5, 31))
+
+    assert revenue.total_revenue == Decimal("1200.00")
+    assert revenue.rows[0].counterparty_name == "Northwind"
+    assert expenses.total_expenses == Decimal("700.00")
+    assert gross.revenue == Decimal("1200.00")
+    assert gross.cost_of_goods_sold == Decimal("500.00")
+    assert gross.gross_profit == Decimal("700.00")
+    assert reserve.note
+    assert "Net income was 500.00" in profitability.cited_facts
+    assert "Runway was" in " ".join(cash_risk.cited_facts)
+    assert runway.runway_months == Decimal("0.00")

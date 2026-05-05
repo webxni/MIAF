@@ -23,12 +23,18 @@ from app.schemas.business import (
     CustomerCreate,
     CustomerOut,
     CustomerUpdate,
+    ExplanationOut,
+    ExpensesByVendorOut,
+    GrossMarginOut,
     IncomeStatementOut,
     InvoiceCreate,
     InvoiceOut,
     InvoiceUpdate,
     PaymentCreate,
     PaymentOut,
+    RevenueByCustomerOut,
+    RunwayReportOut,
+    TaxReserveReportOut,
     TaxRateCreate,
     TaxRateOut,
     TaxReserveCreate,
@@ -54,10 +60,14 @@ from app.services.business import (
     create_vendor,
     delete_customer,
     delete_vendor,
+    explain_business_profitability,
+    explain_cash_flow_risk,
+    expenses_by_vendor,
     get_bill,
     get_customer,
     get_invoice,
     get_vendor,
+    gross_margin_report,
     income_statement,
     list_bills,
     list_closing_periods,
@@ -70,6 +80,9 @@ from app.services.business import (
     post_bill,
     post_invoice,
     record_payment,
+    revenue_by_customer,
+    runway_report,
+    tax_reserve_report,
     update_bill,
     update_customer,
     update_invoice,
@@ -377,6 +390,80 @@ async def cash_flow_endpoint(
     date_to: date,
 ) -> CashFlowOut:
     return await cash_flow_statement(db, entity_id=entity_id, date_from=date_from, date_to=date_to)
+
+
+@router.get("/reports/revenue-by-customer", response_model=RevenueByCustomerOut)
+async def revenue_by_customer_endpoint(
+    entity_id: uuid.UUID,
+    db: DB,
+    scoped: Annotated[tuple[Entity, EntityMember], Depends(require_reader)],
+    date_from: date,
+    date_to: date,
+) -> RevenueByCustomerOut:
+    return await revenue_by_customer(db, entity_id=entity_id, date_from=date_from, date_to=date_to)
+
+
+@router.get("/reports/expenses-by-vendor", response_model=ExpensesByVendorOut)
+async def expenses_by_vendor_endpoint(
+    entity_id: uuid.UUID,
+    db: DB,
+    scoped: Annotated[tuple[Entity, EntityMember], Depends(require_reader)],
+    date_from: date,
+    date_to: date,
+) -> ExpensesByVendorOut:
+    return await expenses_by_vendor(db, entity_id=entity_id, date_from=date_from, date_to=date_to)
+
+
+@router.get("/reports/gross-margin", response_model=GrossMarginOut)
+async def gross_margin_endpoint(
+    entity_id: uuid.UUID,
+    db: DB,
+    scoped: Annotated[tuple[Entity, EntityMember], Depends(require_reader)],
+    date_from: date,
+    date_to: date,
+) -> GrossMarginOut:
+    return await gross_margin_report(db, entity_id=entity_id, date_from=date_from, date_to=date_to)
+
+
+@router.get("/reports/runway", response_model=RunwayReportOut)
+async def runway_endpoint(
+    entity_id: uuid.UUID,
+    db: DB,
+    scoped: Annotated[tuple[Entity, EntityMember], Depends(require_reader)],
+    as_of: date = Query(default_factory=date.today),
+) -> RunwayReportOut:
+    return await runway_report(db, entity_id=entity_id, as_of=as_of)
+
+
+@router.get("/reports/tax-reserve", response_model=TaxReserveReportOut)
+async def tax_reserve_report_endpoint(
+    entity_id: uuid.UUID,
+    db: DB,
+    scoped: Annotated[tuple[Entity, EntityMember], Depends(require_reader)],
+    as_of: date = Query(default_factory=date.today),
+) -> TaxReserveReportOut:
+    return await tax_reserve_report(db, entity_id=entity_id, as_of=as_of)
+
+
+@router.get("/reports/profitability-explanation", response_model=ExplanationOut)
+async def profitability_explanation_endpoint(
+    entity_id: uuid.UUID,
+    db: DB,
+    scoped: Annotated[tuple[Entity, EntityMember], Depends(require_reader)],
+    date_from: date,
+    date_to: date,
+) -> ExplanationOut:
+    return await explain_business_profitability(db, entity_id=entity_id, date_from=date_from, date_to=date_to)
+
+
+@router.get("/reports/cash-flow-risk-explanation", response_model=ExplanationOut)
+async def cash_flow_risk_explanation_endpoint(
+    entity_id: uuid.UUID,
+    db: DB,
+    scoped: Annotated[tuple[Entity, EntityMember], Depends(require_reader)],
+    as_of: date = Query(default_factory=date.today),
+) -> ExplanationOut:
+    return await explain_cash_flow_risk(db, entity_id=entity_id, as_of=as_of)
 
 
 @router.get("/reports/closing-checklist", response_model=ClosingChecklistOut)

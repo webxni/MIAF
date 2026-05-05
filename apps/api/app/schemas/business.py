@@ -232,6 +232,13 @@ class StatementRow(BaseModel):
     amount: Decimal
 
 
+class CounterpartyAmountRow(BaseModel):
+    counterparty_id: uuid.UUID
+    counterparty_name: str
+    amount: Decimal
+    document_count: int
+
+
 class BalanceSheetOut(BaseModel):
     entity_id: uuid.UUID
     as_of: date
@@ -289,6 +296,57 @@ class ClosingChecklistOut(BaseModel):
     open_bills: int
     tax_reserve_balance: Decimal
     checklist: list[str]
+
+
+class RevenueByCustomerOut(BaseModel):
+    entity_id: uuid.UUID
+    date_from: date
+    date_to: date
+    total_revenue: Decimal
+    rows: list[CounterpartyAmountRow]
+
+
+class ExpensesByVendorOut(BaseModel):
+    entity_id: uuid.UUID
+    date_from: date
+    date_to: date
+    total_expenses: Decimal
+    rows: list[CounterpartyAmountRow]
+
+
+class GrossMarginOut(BaseModel):
+    entity_id: uuid.UUID
+    date_from: date
+    date_to: date
+    revenue: Decimal
+    cost_of_goods_sold: Decimal
+    gross_profit: Decimal
+    gross_margin_ratio: Decimal
+
+
+class RunwayReportOut(BaseModel):
+    entity_id: uuid.UUID
+    as_of: date
+    cash_balance: Decimal
+    monthly_expenses: Decimal
+    runway_months: Decimal
+    risk_level: str
+
+
+class TaxReserveReportOut(BaseModel):
+    entity_id: uuid.UUID
+    as_of: date
+    reserved_balance: Decimal
+    latest_estimated_tax: Decimal
+    latest_reserved_amount: Decimal
+    reserve_gap: Decimal
+    note: str
+
+
+class ExplanationOut(BaseModel):
+    entity_id: uuid.UUID
+    explanation: str
+    cited_facts: list[str]
 
 
 class TaxRateCreate(BaseModel):

@@ -20,12 +20,19 @@ from app.schemas.personal import (
 from app.services.journal import create_draft, post_entry
 from app.services.personal import (
     budget_actuals,
-    create_net_worth_snapshot,
     create_budget,
     create_debt,
     create_goal,
     create_investment_account,
+    create_net_worth_snapshot,
+    debt_payoff_plan,
+    emergency_fund_plan,
+    explain_net_worth_change,
+    explain_spending_trends,
+    investment_allocation_summary,
     list_net_worth_snapshots,
+    monthly_cash_flow_report,
+    net_worth_statement,
     personal_dashboard,
 )
 
@@ -377,3 +384,115 @@ async def test_net_worth_snapshot_persists_and_upserts(seeded, db):
     assert updated.id == snapshot.id
     assert updated.total_liabilities == Decimal("250.00")
     assert updated.net_worth == Decimal("750.00")
+
+
+async def test_personal_phase11_reports_and_explanations(seeded, db):
+    entity_id = uuid.UUID(seeded["personal_entity_id"])
+    user_id = uuid.UUID(seeded["user_id"])
+    accounts = await _accounts(db, entity_id)
+
+    await create_debt(
+        db,
+        entity_id=entity_id,
+        payload=DebtCreate(
+            confirmed=True,
+            name="Card A",
+            kind=DebtKind.credit_card,
+            current_balance=Decimal("400.00"),
+            interest_rate_apr=Decimal("22.50"),
+            minimum_payment=Decimal("40.00"),
+        ),
+    )
+    await create_investment_account(
+        db,
+        entity_id=entity_id,
+        payload=InvestmentAccountCreate(
+            confirmed=True,
+            name="Brokerage",
+            kind=InvestmentAccountKind.taxable_brokerage,
+            holdings=[
+                InvestmentHoldingIn(
+                    symbol="VTI",
+                    kind="etf",
+                    shares=Decimal("2"),
+                    current_price=Decimal("100.00"),
+                )
+            ],
+        ),
+    )
+
+    await _post(
+        db,
+        entity_id,
+        user_id,
+        JournalEntryCreate(
+            entry_date=date(2026, 4, 10),
+            memo="April salary",
+            lines=[
+                JournalLineIn(account_id=accounts["1110"].id, debit=Decimal("1000.00"), credit=Decimal("0")),
+                JournalLineIn(account_id=accounts["4100"].id, debit=Decimal("0"), credit=Decimal("1000.00")),
+            ],
+        ),
+    )
+    await _post(
+        db,
+        entity_id,
+        user_id,
+        JournalEntryCreate(
+            entry_date=date(2026, 5, 10),
+            memo="May salary",
+            lines=[
+                JournalLineIn(account_id=accounts["1110"].id, debit=Decimal("1200.00"), credit=Decimal("0")),
+                JournalLineIn(account_id=accounts["4100"].id, debit=Decimal("0"), credit=Decimal("1200.00")),
+            ],
+        ),
+    )
+    await _post(
+        db,
+        entity_id,
+        user_id,
+        JournalEntryCreate(
+            entry_date=date(2026, 5, 12),
+            memo="Dining",
+            lines=[
+                JournalLineIn(account_id=accounts["5200"].id, debit=Decimal("200.00"), credit=Decimal("0")),
+                JournalLineIn(account_id=accounts["1110"].id, debit=Decimal("0"), credit=Decimal("200.00")),
+            ],
+        ),
+    )
+    await _post(
+        db,
+        entity_id,
+        user_id,
+        JournalEntryCreate(
+            entry_date=date(2026, 5, 13),
+            memo="Emergency fund transfer",
+            lines=[
+                JournalLineIn(account_id=accounts["1130"].id, debit=Decimal("300.00"), credit=Decimal("0")),
+                JournalLineIn(account_id=accounts["1110"].id, debit=Decimal("0"), credit=Decimal("300.00")),
+            ],
+        ),
+    )
+
+    net_worth = await net_worth_statement(db, entity_id=entity_id, as_of=date(2026, 5, 31))
+    cash_flow = await monthly_cash_flow_report(db, entity_id=entity_id, as_of=date(2026, 5, 31))
+    payoff = await debt_payoff_plan(db, entity_id=entity_id, as_of=date(2026, 5, 31))
+    emergency = await emergency_fund_plan(db, entity_id=entity_id, as_of=date(2026, 5, 31))
+    allocation = await investment_allocation_summary(db, entity_id=entity_id, as_of=date(2026, 5, 31))
+    nw_explanation = await explain_net_worth_change(
+        db,
+        entity_id=entity_id,
+        date_from=date(2026, 4, 30),
+        date_to=date(2026, 5, 31),
+    )
+    spending_explanation = await explain_spending_trends(db, entity_id=entity_id, as_of=date(2026, 5, 31))
+
+    assert net_worth.net_worth == Decimal("2000.00")
+    assert cash_flow.total_cash_change == Decimal("1000.00")
+    assert payoff.strategy == "avalanche"
+    assert payoff.total_debt == Decimal("400.00")
+    assert emergency.target_min_balance == Decimal("600.00")
+    assert emergency.current_coverage_months == Decimal("1.50")
+    assert allocation.investment_value == Decimal("200.00")
+    assert "change of" in nw_explanation.explanation
+    assert any("Top current category" in fact for fact in spending_explanation.cited_facts)

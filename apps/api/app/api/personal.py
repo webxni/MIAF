@@ -13,15 +13,21 @@ from app.schemas.personal import (
     BudgetCreate,
     BudgetOut,
     BudgetUpdate,
+    BusinessDependencyOut,
+    CashFlowSummaryOut,
     DebtCreate,
+    DebtPayoffPlanOut,
     DebtOut,
     DebtUpdate,
+    EmergencyFundPlanOut,
+    ExplanationOut,
     GoalCreate,
     GoalOut,
     GoalUpdate,
     InvestmentAccountCreate,
     InvestmentAccountOut,
     InvestmentAccountUpdate,
+    InvestmentAllocationSummaryOut,
     NetWorthSnapshotOut,
     PersonalDashboardOut,
 )
@@ -36,16 +42,23 @@ from app.services.personal import (
     delete_budget,
     delete_debt,
     delete_goal,
+    debt_payoff_plan,
+    emergency_fund_plan,
+    explain_net_worth_change,
+    explain_spending_trends,
     delete_investment_account,
     get_budget,
     get_debt,
     get_goal,
     get_investment_account,
+    investment_allocation_summary,
     list_budgets,
     list_debts,
     list_goals,
     list_investment_accounts,
     list_net_worth_snapshots,
+    monthly_cash_flow_report,
+    net_worth_statement,
     personal_dashboard,
     update_budget,
     update_debt,
@@ -123,6 +136,88 @@ async def dashboard_endpoint(
     as_of: date = Query(default_factory=date.today),
 ) -> PersonalDashboardOut:
     return await personal_dashboard(db, entity_id=entity_id, as_of=as_of)
+
+
+@router.get("/reports/net-worth", response_model=NetWorthSnapshotOut)
+async def net_worth_report_endpoint(
+    entity_id: uuid.UUID,
+    db: DB,
+    scoped: Annotated[tuple[Entity, EntityMember], Depends(require_reader)],
+    as_of: date = Query(default_factory=date.today),
+) -> NetWorthSnapshotOut:
+    return await net_worth_statement(db, entity_id=entity_id, as_of=as_of)
+
+
+@router.get("/reports/monthly-cash-flow", response_model=CashFlowSummaryOut)
+async def monthly_cash_flow_endpoint(
+    entity_id: uuid.UUID,
+    db: DB,
+    scoped: Annotated[tuple[Entity, EntityMember], Depends(require_reader)],
+    as_of: date = Query(default_factory=date.today),
+) -> CashFlowSummaryOut:
+    return await monthly_cash_flow_report(db, entity_id=entity_id, as_of=as_of)
+
+
+@router.get("/reports/debt-payoff-plan", response_model=DebtPayoffPlanOut)
+async def debt_payoff_endpoint(
+    entity_id: uuid.UUID,
+    db: DB,
+    scoped: Annotated[tuple[Entity, EntityMember], Depends(require_reader)],
+    as_of: date = Query(default_factory=date.today),
+) -> DebtPayoffPlanOut:
+    return await debt_payoff_plan(db, entity_id=entity_id, as_of=as_of)
+
+
+@router.get("/reports/emergency-fund-plan", response_model=EmergencyFundPlanOut)
+async def emergency_fund_plan_endpoint(
+    entity_id: uuid.UUID,
+    db: DB,
+    scoped: Annotated[tuple[Entity, EntityMember], Depends(require_reader)],
+    as_of: date = Query(default_factory=date.today),
+) -> EmergencyFundPlanOut:
+    return await emergency_fund_plan(db, entity_id=entity_id, as_of=as_of)
+
+
+@router.get("/reports/investment-allocation", response_model=InvestmentAllocationSummaryOut)
+async def investment_allocation_endpoint(
+    entity_id: uuid.UUID,
+    db: DB,
+    scoped: Annotated[tuple[Entity, EntityMember], Depends(require_reader)],
+    as_of: date = Query(default_factory=date.today),
+) -> InvestmentAllocationSummaryOut:
+    return await investment_allocation_summary(db, entity_id=entity_id, as_of=as_of)
+
+
+@router.get("/reports/business-dependency", response_model=BusinessDependencyOut)
+async def business_dependency_report_endpoint(
+    entity_id: uuid.UUID,
+    db: DB,
+    scoped: Annotated[tuple[Entity, EntityMember], Depends(require_reader)],
+    as_of: date = Query(default_factory=date.today),
+) -> BusinessDependencyOut:
+    dashboard = await personal_dashboard(db, entity_id=entity_id, as_of=as_of)
+    return dashboard.business_dependency
+
+
+@router.get("/reports/net-worth-change-explanation", response_model=ExplanationOut)
+async def net_worth_change_explanation_endpoint(
+    entity_id: uuid.UUID,
+    db: DB,
+    scoped: Annotated[tuple[Entity, EntityMember], Depends(require_reader)],
+    date_from: date,
+    date_to: date,
+) -> ExplanationOut:
+    return await explain_net_worth_change(db, entity_id=entity_id, date_from=date_from, date_to=date_to)
+
+
+@router.get("/reports/spending-trends-explanation", response_model=ExplanationOut)
+async def spending_trends_explanation_endpoint(
+    entity_id: uuid.UUID,
+    db: DB,
+    scoped: Annotated[tuple[Entity, EntityMember], Depends(require_reader)],
+    as_of: date = Query(default_factory=date.today),
+) -> ExplanationOut:
+    return await explain_spending_trends(db, entity_id=entity_id, as_of=as_of)
 
 
 @router.get("/budgets", response_model=list[BudgetOut])

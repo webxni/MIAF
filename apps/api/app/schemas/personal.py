@@ -301,6 +301,48 @@ class BusinessDependencyOut(BaseModel):
     depends_on_business_income: bool
 
 
+class DebtPayoffRow(BaseModel):
+    debt_id: uuid.UUID
+    name: str
+    current_balance: Decimal
+    interest_rate_apr: Decimal
+    minimum_payment: Decimal
+
+
+class DebtPayoffPlanOut(BaseModel):
+    entity_id: uuid.UUID
+    as_of: date
+    strategy: str
+    total_debt: Decimal
+    debts: list[DebtPayoffRow]
+
+
+class EmergencyFundPlanOut(BaseModel):
+    entity_id: uuid.UUID
+    as_of: date
+    current_fund_balance: Decimal
+    monthly_expenses: Decimal
+    target_min_balance: Decimal
+    target_ideal_balance: Decimal
+    gap_to_minimum: Decimal
+    gap_to_ideal: Decimal
+    current_coverage_months: Decimal
+
+
+class InvestmentAllocationSummaryOut(BaseModel):
+    entity_id: uuid.UUID
+    as_of: date
+    investment_value: Decimal
+    allocation: list[InvestmentAllocationRow]
+    disclaimer: str
+
+
+class ExplanationOut(BaseModel):
+    entity_id: uuid.UUID
+    explanation: str
+    cited_facts: list[str]
+
+
 class NetWorthSnapshotOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

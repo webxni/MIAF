@@ -46,14 +46,21 @@ from app.schemas.business import (
     CashFlowOut,
     ClosingChecklistOut,
     ClosingPeriodCreate,
+    CounterpartyAmountRow,
     CustomerCreate,
     CustomerUpdate,
+    ExplanationOut,
+    ExpensesByVendorOut,
+    GrossMarginOut,
     IncomeStatementOut,
     InvoiceCreate,
     InvoiceLineIn,
     InvoiceUpdate,
     PaymentCreate,
+    RevenueByCustomerOut,
+    RunwayReportOut,
     StatementRow,
+    TaxReserveReportOut,
     TaxRateCreate,
     TaxReserveCreate,
     VendorCreate,
@@ -958,3 +965,185 @@ async def closing_checklist(db: AsyncSession, *, entity_id: uuid.UUID, as_of: da
         tax_reserve_balance=dashboard.tax_reserve_balance,
         checklist=checklist,
     )
+
+
+async def revenue_by_customer(
+    db: AsyncSession,
+    *,
+    entity_id: uuid.UUID,
+    date_from: date,
+    date_to: date,
+) -> RevenueByCustomerOut:
+    await _get_business_entity(db, entity_id)
+    rows = (
+        await db.execute(
+            select(Customer.id, Customer.name, func.coalesce(func.sum(Invoice.total), 0).label("total"), func.count(Invoice.id))
+            .join(Invoice, Invoice.customer_id == Customer.id)
+            .where(
+                Customer.entity_id == entity_id,
+                Invoice.entity_id == entity_id,
+                Invoice.status.in_([BusinessDocumentStatus.posted, BusinessDocumentStatus.partial, BusinessDocumentStatus.paid]),
+                Invoice.invoice_date >= date_from,
+                Invoice.invoice_date <= date_to,
+            )
+            .group_by(Customer.id, Customer.name)
+            .order_by(func.coalesce(func.sum(Invoice.total), 0).desc(), Customer.name)
+        )
+    ).all()
+    result_rows = [
+        CounterpartyAmountRow(
+            counterparty_id=row.id,
+            counterparty_name=row.name,
+            amount=to_money(Decimal(row.total)),
+            document_count=row.count,
+        )
+        for row in rows
+    ]
+    total = to_money(sum((row.amount for row in result_rows), ZERO))
+    return RevenueByCustomerOut(entity_id=entity_id, date_from=date_from, date_to=date_to, total_revenue=total, rows=result_rows)
+
+
+async def expenses_by_vendor(
+    db: AsyncSession,
+    *,
+    entity_id: uuid.UUID,
+    date_from: date,
+    date_to: date,
+) -> ExpensesByVendorOut:
+    await _get_business_entity(db, entity_id)
+    rows = (
+        await db.execute(
+            select(Vendor.id, Vendor.name, func.coalesce(func.sum(Bill.total), 0).label("total"), func.count(Bill.id))
+            .join(Bill, Bill.vendor_id == Vendor.id)
+            .where(
+                Vendor.entity_id == entity_id,
+                Bill.entity_id == entity_id,
+                Bill.status.in_([BusinessDocumentStatus.posted, BusinessDocumentStatus.partial, BusinessDocumentStatus.paid]),
+                Bill.bill_date >= date_from,
+                Bill.bill_date <= date_to,
+            )
+            .group_by(Vendor.id, Vendor.name)
+            .order_by(func.coalesce(func.sum(Bill.total), 0).desc(), Vendor.name)
+        )
+    ).all()
+    result_rows = [
+        CounterpartyAmountRow(
+            counterparty_id=row.id,
+            counterparty_name=row.name,
+            amount=to_money(Decimal(row.total)),
+            document_count=row.count,
+        )
+        for row in rows
+    ]
+    total = to_money(sum((row.amount for row in result_rows), ZERO))
+    return ExpensesByVendorOut(entity_id=entity_id, date_from=date_from, date_to=date_to, total_expenses=total, rows=result_rows)
+
+
+async def gross_margin_report(
+    db: AsyncSession,
+    *,
+    entity_id: uuid.UUID,
+    date_from: date,
+    date_to: date,
+) -> GrossMarginOut:
+    await _get_business_entity(db, entity_id)
+    balances = await _ledger_balances(db, entity_id=entity_id, date_from=date_from, date_to=date_to)
+    revenue = ZERO
+    cogs = ZERO
+    for row in balances.values():
+        amount = to_money(row["amount"])
+        if row["type"] == AccountType.income:
+            revenue += amount
+        elif row["type"] == AccountType.expense and row["code"].startswith("51"):
+            cogs += amount
+    gross_profit = to_money(revenue - cogs)
+    gross_margin_ratio = ZERO if revenue == ZERO else to_money(gross_profit / revenue)
+    return GrossMarginOut(
+        entity_id=entity_id,
+        date_from=date_from,
+        date_to=date_to,
+        revenue=to_money(revenue),
+        cost_of_goods_sold=to_money(cogs),
+        gross_profit=gross_profit,
+        gross_margin_ratio=gross_margin_ratio,
+    )
+
+
+async def runway_report(db: AsyncSession, *, entity_id: uuid.UUID, as_of: date) -> RunwayReportOut:
+    dashboard = await business_dashboard(db, entity_id=entity_id, as_of=as_of)
+    runway = ZERO if dashboard.monthly_expenses == ZERO else to_money(dashboard.cash_balance / dashboard.monthly_expenses)
+    risk_level = "stable"
+    if dashboard.monthly_expenses == ZERO:
+        risk_level = "unknown"
+    elif runway < Decimal("1"):
+        risk_level = "critical"
+    elif runway < Decimal("2"):
+        risk_level = "warning"
+    return RunwayReportOut(
+        entity_id=entity_id,
+        as_of=as_of,
+        cash_balance=dashboard.cash_balance,
+        monthly_expenses=dashboard.monthly_expenses,
+        runway_months=runway,
+        risk_level=risk_level,
+    )
+
+
+async def tax_reserve_report(db: AsyncSession, *, entity_id: uuid.UUID, as_of: date) -> TaxReserveReportOut:
+    dashboard = await business_dashboard(db, entity_id=entity_id, as_of=as_of)
+    latest = next((row for row in await list_tax_reserves(db, entity_id=entity_id) if row.as_of <= as_of), None)
+    estimated_tax = to_money(latest.estimated_tax if latest is not None else ZERO)
+    reserved_amount = to_money(latest.reserved_amount if latest is not None else ZERO)
+    reserve_gap = to_money(max(estimated_tax - reserved_amount, ZERO))
+    return TaxReserveReportOut(
+        entity_id=entity_id,
+        as_of=as_of,
+        reserved_balance=dashboard.tax_reserve_balance,
+        latest_estimated_tax=estimated_tax,
+        latest_reserved_amount=reserved_amount,
+        reserve_gap=reserve_gap,
+        note=TAX_ESTIMATE_NOTE,
+    )
+
+
+async def explain_business_profitability(
+    db: AsyncSession,
+    *,
+    entity_id: uuid.UUID,
+    date_from: date,
+    date_to: date,
+) -> ExplanationOut:
+    report = await income_statement(db, entity_id=entity_id, date_from=date_from, date_to=date_to)
+    gross = await gross_margin_report(db, entity_id=entity_id, date_from=date_from, date_to=date_to)
+    facts = [
+        f"Revenue was {report.total_income}",
+        f"Expenses were {report.total_expenses}",
+        f"Net income was {report.net_income}",
+        f"COGS was {gross.cost_of_goods_sold}",
+        f"Gross margin ratio was {gross.gross_margin_ratio}",
+    ]
+    explanation = (
+        f"Business profitability for {date_from.isoformat()} to {date_to.isoformat()} is driven by "
+        f"revenue of {report.total_income} against total expenses of {report.total_expenses}, leaving "
+        f"net income of {report.net_income}. Gross profit was {gross.gross_profit} after {gross.cost_of_goods_sold} of COGS."
+    )
+    return ExplanationOut(entity_id=entity_id, explanation=explanation, cited_facts=facts)
+
+
+async def explain_cash_flow_risk(db: AsyncSession, *, entity_id: uuid.UUID, as_of: date) -> ExplanationOut:
+    dashboard = await business_dashboard(db, entity_id=entity_id, as_of=as_of)
+    runway = await runway_report(db, entity_id=entity_id, as_of=as_of)
+    facts = [
+        f"Cash balance was {dashboard.cash_balance}",
+        f"Monthly expenses were {dashboard.monthly_expenses}",
+        f"Accounts payable was {dashboard.accounts_payable}",
+        f"Accounts receivable was {dashboard.accounts_receivable}",
+        f"Runway was {runway.runway_months} months",
+    ]
+    explanation = (
+        f"Cash flow risk as of {as_of.isoformat()} is assessed from cash of {dashboard.cash_balance}, "
+        f"monthly expenses of {dashboard.monthly_expenses}, receivables of {dashboard.accounts_receivable}, "
+        f"and payables of {dashboard.accounts_payable}. Current runway is {runway.runway_months} months, "
+        f"which is classified as {runway.risk_level}."
+    )
+    return ExplanationOut(entity_id=entity_id, explanation=explanation, cited_facts=facts)
