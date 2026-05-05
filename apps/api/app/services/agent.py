@@ -33,6 +33,7 @@ from app.schemas.agent import (
 )
 from app.schemas.business import CustomerCreate, InvoiceCreate
 from app.schemas.journal import JournalEntryCreate, JournalEntryOut, JournalLineIn
+from app.schemas.memory import MemoryCreate
 from app.services.audit import write_audit
 from app.services.business import (
     balance_sheet,
@@ -44,6 +45,7 @@ from app.services.business import (
 )
 from app.services.entities import list_entities_for_user
 from app.services.journal import create_draft, get_entry_scoped, post_entry
+from app.services.memory import create_memory, list_memories
 from app.services.personal import personal_dashboard
 
 
@@ -527,6 +529,38 @@ async def _tool_not_implemented(_: ToolContext, __) -> dict[str, Any]:
     return {"status": "not_implemented", "message": "This tool is reserved for a later phase."}
 
 
+async def _tool_search_memory(ctx: ToolContext, args: MemoryArgs) -> dict[str, Any]:
+    rows = await list_memories(ctx.db, tenant_id=ctx.me.tenant_id, query=args.query, limit=5)
+    return {
+        "matches": [
+            {
+                "memory_id": str(row.id),
+                "title": row.title,
+                "memory_type": row.memory_type.value,
+                "summary": row.summary,
+            }
+            for row in rows
+        ]
+    }
+
+
+async def _tool_add_memory(ctx: ToolContext, args: MemoryArgs) -> dict[str, Any]:
+    memory = await create_memory(
+        ctx.db,
+        tenant_id=ctx.me.tenant_id,
+        user_id=ctx.me.id,
+        payload=MemoryCreate(
+            memory_type="advisor_note",
+            title=args.query[:80],
+            content=args.query,
+            summary=args.query[:200],
+            consent_granted=True,
+            source="agent",
+        ),
+    )
+    return {"memory_id": str(memory.id), "title": memory.title, "memory_type": memory.memory_type.value}
+
+
 def build_tool_registry() -> ToolRegistry:
     registry = ToolRegistry()
     registry.register("create_journal_entry_draft", CreateJournalEntryDraftArgs, _tool_create_journal_entry_draft)
@@ -549,8 +583,8 @@ def build_tool_registry() -> ToolRegistry:
     registry.register("suggest_investment_allocation", SuggestInvestmentAllocationArgs, _tool_suggest_investment_allocation)
     registry.register("classify_transaction", ExplainTransactionArgs, _tool_not_implemented)
     registry.register("explain_transaction", ExplainTransactionArgs, _tool_explain_transaction)
-    registry.register("search_memory", MemoryArgs, _tool_not_implemented)
-    registry.register("add_memory", MemoryArgs, _tool_not_implemented)
+    registry.register("search_memory", MemoryArgs, _tool_search_memory)
+    registry.register("add_memory", MemoryArgs, _tool_add_memory)
     return registry
 
 
@@ -700,4 +734,3 @@ class AgentService:
             if completed:
                 return provider_message + f" Completed: {', '.join(completed)}."
         return provider_message
-

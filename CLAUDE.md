@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository status
 
-This repo is active and already has Phases 0, 1, 2, 3, 4, an initial Phase 5 web slice, and an initial Phase 6 agent-core slice landed.
+This repo is active and already has Phases 0, 1, 2, 3, 4, an initial Phase 5 web slice, an initial Phase 6 agent-core slice, and an initial Phase 7 memory backend slice landed.
 
 - Phase 0: Docker-first monorepo, compose stack, health checks, Makefile, backup container.
 - Phase 1: accounting core with auth, tenant/entity RBAC, accounts, journal entries, post/void, ledger, trial balance, audit logging, seed data, and tests.
@@ -13,6 +13,7 @@ This repo is active and already has Phases 0, 1, 2, 3, 4, an initial Phase 5 web
 - Phase 4: ingestion backend slice with models + migration for import batches, document extractions, and extraction candidates; attachment-backed receipt upload; deterministic text receipt extraction for merchant/date/total with field confidence; candidate approval into draft journal entries; CSV import into `source_transactions`; signed download URL endpoint; tests.
 - Phase 5: web app now has protected route scaffolding, login, dashboard/personal/business/documents/settings/audit pages, shared shell/components, and placeholder route anchors for the deeper views. The current blocker is a Next.js prerender/runtime failure inside the container build (`docker compose exec -T web npm run build`) showing `TypeError: Cannot read properties of null (reading 'useContext')` during static page generation plus the built-in `/500` path complaining about `<Html>` outside `_document`. Treat this as an unresolved frontend build issue, not as finished Phase 5 acceptance.
 - Phase 6: agent backend slice now exists with `app/api/agent.py`, `app/services/agent.py`, and `app/schemas/agent.py`; it provides an audited `/api/agent/chat` endpoint, typed tool registry, heuristic provider abstraction, policy/confirmation gates, and tests for personal-expense drafting/posting, business invoice drafting, balance-sheet explanation, and personal-vs-business comparison.
+- Phase 7: memory backend slice now exists with `app/models/memory.py`, `app/services/memory.py`, `app/schemas/memory.py`, `app/api/memory.py`, and migration `0005_memory.py`; it provides consent-gated durable memory creation, deterministic search, review/expire/forget flows, append-only memory events, deterministic embeddings metadata, and tests.
 
 Treat `FinClaw.md` as the product contract and this file as the current repo-state memo. Do not assume the repo is empty.
 
@@ -139,6 +140,10 @@ API surface (Phases 1-6 backend):
 * `POST /api/entities/{id}/documents/extraction-candidates/{candidate_id}/approve`.
 * `GET /api/entities/{id}/documents/attachments/{attachment_id}/download-url`.
 * `POST /api/agent/chat`.
+* `GET/POST /api/memory`.
+* `GET/PATCH/DELETE /api/memory/{memory_id}`.
+* `POST /api/memory/{memory_id}/review`.
+* `POST /api/memory/{memory_id}/expire`.
 
 Default seed credentials (dev only): `owner@example.com` / `change-me-on-first-login`. Override via `SEED_USER_EMAIL`, `SEED_USER_PASSWORD` env vars.
 
@@ -187,8 +192,16 @@ Phase 6 status:
 * Agent route lives in `app/api/agent.py`; core service lives in `app/services/agent.py`; payloads live in `app/schemas/agent.py`.
 * Providers currently share a deterministic heuristic planning path through `HeuristicProvider`, `OpenAIProvider`, `AnthropicProvider`, and `GeminiProvider`. This keeps the interface in place without requiring external API calls during local development.
 * The tool registry is typed with Pydantic and currently implements: `create_journal_entry_draft`, `post_journal_entry`, `create_personal_expense`, `create_invoice`, `get_personal_summary`, `get_business_summary`, `get_balance_sheet`, `get_income_statement`, `get_cash_flow`, `suggest_emergency_fund_plan`, `suggest_investment_allocation`, and `explain_transaction`.
-* Stubbed later-phase tools currently return `status="not_implemented"` rather than pretending memory/automation already exists.
+* Memory tools are now wired: `search_memory` and `add_memory` route into the Phase 7 memory service. Remaining later-phase tools still return `status="not_implemented"` rather than pretending automation already exists.
 * `PolicyEngine` blocks forbidden real-money / trade actions. `ConfirmationEngine` requires confirmation for sensitive posting/payment-style tools. Audit logs record prompts and tool calls with redaction.
 * Tests for the agent core live in `apps/api/tests/test_agent_core.py`.
+
+Phase 7 status:
+* Memory models live in `app/models/memory.py`: `Memory`, `MemoryEmbedding`, `MemoryEvent`, and `MemoryReview`.
+* Current memory search is deterministic text search with redacted-text embedding metadata stored in `memory_embeddings`; this is enough for correctness without depending on a live embedding provider.
+* Memory writes require `consent_granted=true` and reject obvious credential-like content.
+* `delete` is implemented as a "forget this" soft-delete (`is_active=false` plus event/audit trail), not as destructive row removal.
+* Every memory create/update/review/expire/delete route writes normal audit logs, and the memory service itself appends `memory_events`.
+* Tests for the memory slice live in `apps/api/tests/test_memory.py`.
 
 Before recommending or running a Make target, prefer `make help` (it prints the live target list parsed from the `Makefile`) over trusting this table — the Makefile is authoritative.

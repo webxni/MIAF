@@ -11,6 +11,7 @@ from app.api.documents import router as documents_router
 from app.api.entities import router as entities_router
 from app.api.journal import router as journal_router
 from app.api.ledger import router as ledger_router
+from app.api.memory import router as memory_router
 from app.api.personal import router as personal_router
 from app.config import get_settings
 from app.errors import install_error_handlers
@@ -49,6 +50,7 @@ app.include_router(personal_router)
 app.include_router(business_router)
 app.include_router(documents_router)
 app.include_router(agent_router)
+app.include_router(memory_router)
 
 
 @app.get("/", tags=["meta"])

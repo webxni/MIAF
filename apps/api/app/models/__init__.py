@@ -45,6 +45,15 @@ from app.models.journal import (
     JournalEntryStatus,
     JournalLine,
 )
+from app.models.memory import (
+    Memory,
+    MemoryEmbedding,
+    MemoryEvent,
+    MemoryEventType,
+    MemoryReview,
+    MemoryReviewStatus,
+    MemoryType,
+)
 from app.models.net_worth import NetWorthSnapshot
 from app.models.session import Session
 from app.models.source_transaction import SourceTransaction, SourceTransactionStatus
@@ -87,6 +96,13 @@ __all__ = [
     "JournalEntry",
     "JournalEntryStatus",
     "JournalLine",
+    "Memory",
+    "MemoryEmbedding",
+    "MemoryEvent",
+    "MemoryEventType",
+    "MemoryReview",
+    "MemoryReviewStatus",
+    "MemoryType",
     "DocumentExtraction",
     "NetWorthSnapshot",
     "NormalSide",
