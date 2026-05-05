@@ -19,10 +19,13 @@ from app.schemas.personal import (
 )
 from app.services.journal import create_draft, post_entry
 from app.services.personal import (
+    budget_actuals,
+    create_net_worth_snapshot,
     create_budget,
     create_debt,
     create_goal,
     create_investment_account,
+    list_net_worth_snapshots,
     personal_dashboard,
 )
 
@@ -108,6 +111,19 @@ async def test_personal_dashboard_kpis_are_deterministic(seeded, db):
     user_id = uuid.UUID(seeded["user_id"])
     accounts = await _accounts(db, entity_id)
 
+    await _post(
+        db,
+        entity_id,
+        user_id,
+        JournalEntryCreate(
+            entry_date=date(2026, 5, 1),
+            memo="Owner draw received",
+            lines=[
+                JournalLineIn(account_id=accounts["1110"].id, debit=Decimal("1000.00"), credit=Decimal("0")),
+                JournalLineIn(account_id=accounts["4200"].id, debit=Decimal("0"), credit=Decimal("1000.00")),
+            ],
+        ),
+    )
     await _post(
         db,
         entity_id,
@@ -203,16 +219,161 @@ async def test_personal_dashboard_kpis_are_deterministic(seeded, db):
 
     dashboard = await personal_dashboard(db, entity_id=entity_id, as_of=date(2026, 5, 31))
 
-    assert dashboard.monthly_income == Decimal("3000.00")
+    assert dashboard.monthly_income == Decimal("4000.00")
     assert dashboard.monthly_expenses == Decimal("1200.00")
-    assert dashboard.monthly_savings == Decimal("1800.00")
-    assert dashboard.savings_rate == Decimal("0.60")
+    assert dashboard.monthly_savings == Decimal("2800.00")
+    assert dashboard.savings_rate == Decimal("0.70")
     assert dashboard.emergency_fund_balance == Decimal("600.00")
     assert dashboard.emergency_fund_months == Decimal("0.50")
-    assert dashboard.net_worth == Decimal("900.00")
+    assert dashboard.net_worth == Decimal("1900.00")
     assert dashboard.total_debt == Decimal("900.00")
-    assert dashboard.debt_to_income_ratio == Decimal("0.30")
+    assert dashboard.debt_to_income_ratio == Decimal("0.23")
+    assert dashboard.cash_flow.total_cash_change == Decimal("2800.00")
+    assert dashboard.spending_by_category[0].account_code == "5200"
+    assert dashboard.spending_by_category[0].share_of_expenses == Decimal("1.00")
+    assert dashboard.business_dependency.owner_draw_income == Decimal("1000.00")
+    assert dashboard.business_dependency.salary_income == Decimal("3000.00")
+    assert dashboard.business_dependency.business_dependency_ratio == Decimal("0.25")
+    assert dashboard.business_dependency.depends_on_business_income is False
     assert dashboard.investment_value == Decimal("250.00")
     assert dashboard.investment_allocation[0].label == "etf"
     assert dashboard.goal_progress[0].progress_ratio == Decimal("0.20")
     assert "does not execute trades" in dashboard.investment_disclaimer
+
+
+async def test_business_dependency_tracking_flags_owner_draw_dependence(seeded, db):
+    entity_id = uuid.UUID(seeded["personal_entity_id"])
+    user_id = uuid.UUID(seeded["user_id"])
+    accounts = await _accounts(db, entity_id)
+
+    await _post(
+        db,
+        entity_id,
+        user_id,
+        JournalEntryCreate(
+            entry_date=date(2026, 5, 3),
+            memo="Owner draw received",
+            lines=[
+                JournalLineIn(account_id=accounts["1110"].id, debit=Decimal("2000.00"), credit=Decimal("0")),
+                JournalLineIn(account_id=accounts["4200"].id, debit=Decimal("0"), credit=Decimal("2000.00")),
+            ],
+        ),
+    )
+    await _post(
+        db,
+        entity_id,
+        user_id,
+        JournalEntryCreate(
+            entry_date=date(2026, 5, 4),
+            memo="Part-time salary",
+            lines=[
+                JournalLineIn(account_id=accounts["1110"].id, debit=Decimal("500.00"), credit=Decimal("0")),
+                JournalLineIn(account_id=accounts["4100"].id, debit=Decimal("0"), credit=Decimal("500.00")),
+            ],
+        ),
+    )
+
+    dashboard = await personal_dashboard(db, entity_id=entity_id, as_of=date(2026, 5, 31))
+
+    assert dashboard.business_dependency.owner_draw_income == Decimal("2000.00")
+    assert dashboard.business_dependency.salary_income == Decimal("500.00")
+    assert dashboard.business_dependency.business_dependency_ratio == Decimal("0.80")
+    assert dashboard.business_dependency.dominant_source == "owner_draws"
+    assert dashboard.business_dependency.depends_on_business_income is True
+
+
+async def test_budget_actuals_exclude_savings_transfers_and_track_variance(seeded, db):
+    entity_id = uuid.UUID(seeded["personal_entity_id"])
+    user_id = uuid.UUID(seeded["user_id"])
+    accounts = await _accounts(db, entity_id)
+
+    budget = await create_budget(
+        db,
+        entity_id=entity_id,
+        payload=BudgetCreate(
+            name="May 2026",
+            period_start=date(2026, 5, 1),
+            period_end=date(2026, 5, 31),
+            lines=[{"account_id": accounts["5200"].id, "planned_amount": "500.00"}],
+        ),
+    )
+    await _post(
+        db,
+        entity_id,
+        user_id,
+        JournalEntryCreate(
+            entry_date=date(2026, 5, 10),
+            memo="Groceries",
+            lines=[
+                JournalLineIn(account_id=accounts["5200"].id, debit=Decimal("550.00"), credit=Decimal("0")),
+                JournalLineIn(account_id=accounts["1110"].id, debit=Decimal("0"), credit=Decimal("550.00")),
+            ],
+        ),
+    )
+    await _post(
+        db,
+        entity_id,
+        user_id,
+        JournalEntryCreate(
+            entry_date=date(2026, 5, 15),
+            memo="Move to emergency fund",
+            lines=[
+                JournalLineIn(account_id=accounts["1130"].id, debit=Decimal("200.00"), credit=Decimal("0")),
+                JournalLineIn(account_id=accounts["1110"].id, debit=Decimal("0"), credit=Decimal("200.00")),
+            ],
+        ),
+    )
+
+    actuals = await budget_actuals(db, entity_id=entity_id, budget_id=budget.id)
+
+    assert actuals.total_planned == Decimal("500.00")
+    assert actuals.total_actual == Decimal("550.00")
+    assert actuals.total_variance == Decimal("-50.00")
+    assert actuals.lines[0].overspent is True
+    assert actuals.lines[0].account_code == "5200"
+
+
+async def test_net_worth_snapshot_persists_and_upserts(seeded, db):
+    entity_id = uuid.UUID(seeded["personal_entity_id"])
+    user_id = uuid.UUID(seeded["user_id"])
+    accounts = await _accounts(db, entity_id)
+
+    await _post(
+        db,
+        entity_id,
+        user_id,
+        JournalEntryCreate(
+            entry_date=date(2026, 5, 2),
+            memo="Opening cash",
+            lines=[
+                JournalLineIn(account_id=accounts["1110"].id, debit=Decimal("1000.00"), credit=Decimal("0")),
+                JournalLineIn(account_id=accounts["3100"].id, debit=Decimal("0"), credit=Decimal("1000.00")),
+            ],
+        ),
+    )
+    snapshot = await create_net_worth_snapshot(db, entity_id=entity_id, as_of=date(2026, 5, 31))
+    snapshots = await list_net_worth_snapshots(db, entity_id=entity_id, limit=12)
+
+    assert snapshot.total_assets == Decimal("1000.00")
+    assert snapshot.total_liabilities == Decimal("0.00")
+    assert snapshot.net_worth == Decimal("1000.00")
+    assert len(snapshots) == 1
+
+    await _post(
+        db,
+        entity_id,
+        user_id,
+        JournalEntryCreate(
+            entry_date=date(2026, 5, 20),
+            memo="Credit card balance",
+            lines=[
+                JournalLineIn(account_id=accounts["3100"].id, debit=Decimal("250.00"), credit=Decimal("0")),
+                JournalLineIn(account_id=accounts["2100"].id, debit=Decimal("0"), credit=Decimal("250.00")),
+            ],
+        ),
+    )
+    updated = await create_net_worth_snapshot(db, entity_id=entity_id, as_of=date(2026, 5, 31))
+
+    assert updated.id == snapshot.id
+    assert updated.total_liabilities == Decimal("250.00")
+    assert updated.net_worth == Decimal("750.00")

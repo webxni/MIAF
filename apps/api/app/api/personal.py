@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, Query, Response, status
 from app.api.deps import DB, CurrentUserDep, RequestCtx, require_reader, require_writer
 from app.models import Entity, EntityMember
 from app.schemas.personal import (
+    BudgetActualsOut,
     BudgetCreate,
     BudgetOut,
     BudgetUpdate,
@@ -21,10 +22,13 @@ from app.schemas.personal import (
     InvestmentAccountCreate,
     InvestmentAccountOut,
     InvestmentAccountUpdate,
+    NetWorthSnapshotOut,
     PersonalDashboardOut,
 )
 from app.services.audit import write_audit
 from app.services.personal import (
+    budget_actuals,
+    create_net_worth_snapshot,
     create_budget,
     create_debt,
     create_goal,
@@ -41,6 +45,7 @@ from app.services.personal import (
     list_debts,
     list_goals,
     list_investment_accounts,
+    list_net_worth_snapshots,
     personal_dashboard,
     update_budget,
     update_debt,
@@ -152,6 +157,16 @@ async def create_budget_endpoint(
         user_agent=ctx.user_agent,
     )
     return BudgetOut.model_validate(budget)
+
+
+@router.get("/budgets/{budget_id}/actuals", response_model=BudgetActualsOut)
+async def budget_actuals_endpoint(
+    entity_id: uuid.UUID,
+    budget_id: uuid.UUID,
+    db: DB,
+    scoped: Annotated[tuple[Entity, EntityMember], Depends(require_reader)],
+) -> BudgetActualsOut:
+    return await budget_actuals(db, entity_id=entity_id, budget_id=budget_id)
 
 
 @router.patch("/budgets/{budget_id}", response_model=BudgetOut)
@@ -489,3 +504,44 @@ async def delete_investment_endpoint(
         user_agent=ctx.user_agent,
     )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/net-worth-snapshots", response_model=NetWorthSnapshotOut, status_code=status.HTTP_201_CREATED)
+async def create_net_worth_snapshot_endpoint(
+    entity_id: uuid.UUID,
+    db: DB,
+    me: CurrentUserDep,
+    ctx: RequestCtx,
+    scoped: Annotated[tuple[Entity, EntityMember], Depends(require_writer)],
+    as_of: date = Query(default_factory=date.today),
+) -> NetWorthSnapshotOut:
+    snapshot = await create_net_worth_snapshot(db, entity_id=entity_id, as_of=as_of)
+    await write_audit(
+        db,
+        tenant_id=me.tenant_id,
+        user_id=me.id,
+        entity_id=entity_id,
+        action="create",
+        object_type="net_worth_snapshot",
+        object_id=snapshot.id,
+        after={
+            "as_of": snapshot.as_of.isoformat(),
+            "total_assets": str(snapshot.total_assets),
+            "total_liabilities": str(snapshot.total_liabilities),
+            "net_worth": str(snapshot.net_worth),
+        },
+        ip=ctx.ip,
+        user_agent=ctx.user_agent,
+    )
+    return NetWorthSnapshotOut.model_validate(snapshot)
+
+
+@router.get("/net-worth-snapshots", response_model=list[NetWorthSnapshotOut])
+async def list_net_worth_snapshots_endpoint(
+    entity_id: uuid.UUID,
+    db: DB,
+    scoped: Annotated[tuple[Entity, EntityMember], Depends(require_reader)],
+    limit: int = Query(default=12, ge=1, le=120),
+) -> list[NetWorthSnapshotOut]:
+    rows = await list_net_worth_snapshots(db, entity_id=entity_id, limit=limit)
+    return [NetWorthSnapshotOut.model_validate(row) for row in rows]

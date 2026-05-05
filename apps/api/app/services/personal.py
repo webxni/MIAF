@@ -21,19 +21,24 @@ from app.models import (
     Entity,
     EntityMode,
     Goal,
-    HoldingKind,
     InvestmentAccount,
     InvestmentHolding,
     JournalEntry,
     JournalEntryStatus,
     JournalLine,
+    NetWorthSnapshot,
     NormalSide,
 )
 from app.money import ZERO, to_money
 from app.schemas.personal import (
+    BudgetActualLineOut,
+    BudgetActualsOut,
     BudgetCreate,
     BudgetLineIn,
     BudgetUpdate,
+    BusinessDependencyOut,
+    CashFlowAccountRow,
+    CashFlowSummaryOut,
     DebtCreate,
     DebtUpdate,
     GoalCreate,
@@ -43,7 +48,9 @@ from app.schemas.personal import (
     InvestmentAccountUpdate,
     InvestmentAllocationRow,
     InvestmentHoldingIn,
+    NetWorthSnapshotOut,
     PersonalDashboardOut,
+    SpendingCategoryRow,
 )
 
 INVESTMENT_DISCLAIMER = (
@@ -96,6 +103,12 @@ def _month_bounds(as_of: date) -> tuple[date, date]:
     start = as_of.replace(day=1)
     end = as_of.replace(day=calendar.monthrange(as_of.year, as_of.month)[1])
     return start, end
+
+
+def _ratio(numerator: Decimal, denominator: Decimal) -> Decimal:
+    if denominator == ZERO:
+        return ZERO
+    return to_money(numerator / denominator)
 
 
 async def _account_balances(
@@ -253,6 +266,61 @@ async def update_budget(db: AsyncSession, budget: Budget, *, payload: BudgetUpda
 async def delete_budget(db: AsyncSession, budget: Budget) -> None:
     await db.delete(budget)
     await db.flush()
+
+
+async def budget_actuals(
+    db: AsyncSession,
+    *,
+    entity_id: uuid.UUID,
+    budget_id: uuid.UUID,
+) -> BudgetActualsOut:
+    budget = await get_budget(db, entity_id=entity_id, budget_id=budget_id)
+    actual_balances = await _account_balances(
+        db,
+        entity_id=entity_id,
+        date_from=budget.period_start,
+        date_to=budget.period_end,
+    )
+    account_map = await _get_account_map(
+        db,
+        entity_id,
+        [line.account_id for line in budget.lines],
+    )
+
+    total_planned = ZERO
+    total_actual = ZERO
+    lines: list[BudgetActualLineOut] = []
+    for line in budget.lines:
+        account = account_map[line.account_id]
+        planned = to_money(line.planned_amount)
+        actual = to_money(actual_balances.get(line.account_id, {}).get("balance", ZERO))
+        variance = to_money(planned - actual)
+        total_planned += planned
+        total_actual += actual
+        lines.append(
+            BudgetActualLineOut(
+                account_id=account.id,
+                account_code=account.code,
+                account_name=account.name,
+                planned_amount=planned,
+                actual_amount=actual,
+                variance_amount=variance,
+                overspent=(actual > planned),
+            )
+        )
+
+    total_planned = to_money(total_planned)
+    total_actual = to_money(total_actual)
+    return BudgetActualsOut(
+        budget_id=budget.id,
+        entity_id=entity_id,
+        period_start=budget.period_start,
+        period_end=budget.period_end,
+        total_planned=total_planned,
+        total_actual=total_actual,
+        total_variance=to_money(total_planned - total_actual),
+        lines=lines,
+    )
 
 
 async def list_goals(db: AsyncSession, *, entity_id: uuid.UUID) -> list[Goal]:
@@ -581,8 +649,8 @@ async def personal_dashboard(
     net_worth = to_money(net_worth)
     emergency_fund_balance = to_money(emergency_fund_balance)
     monthly_savings = to_money(monthly_income - monthly_expenses)
-    savings_rate = ZERO if monthly_income == ZERO else to_money(monthly_savings / monthly_income)
-    emergency_fund_months = ZERO if monthly_expenses == ZERO else to_money(emergency_fund_balance / monthly_expenses)
+    savings_rate = _ratio(monthly_savings, monthly_income)
+    emergency_fund_months = _ratio(emergency_fund_balance, monthly_expenses)
 
     debts = (
         await db.execute(select(Debt).where(Debt.entity_id == entity_id, Debt.status == "active"))
@@ -594,7 +662,7 @@ async def personal_dashboard(
         else:
             total_debt += to_money(debt.current_balance)
     total_debt = to_money(total_debt)
-    debt_to_income_ratio = ZERO if monthly_income == ZERO else to_money(total_debt / monthly_income)
+    debt_to_income_ratio = _ratio(total_debt, monthly_income)
 
     investment_accounts = (
         await db.execute(
@@ -619,7 +687,7 @@ async def personal_dashboard(
     investment_value = to_money(investment_value)
     allocation_rows: list[InvestmentAllocationRow] = []
     for label, value in sorted(allocations.items()):
-        ratio = ZERO if investment_value == ZERO else to_money(value / investment_value)
+        ratio = _ratio(value, investment_value)
         allocation_rows.append(
             InvestmentAllocationRow(label=label, value=to_money(value), allocation_ratio=ratio)
         )
@@ -634,7 +702,7 @@ async def personal_dashboard(
             if goal.linked_account_id
             else to_money(goal.current_amount)
         )
-        ratio = ZERO if goal.target_amount == ZERO else to_money(current / goal.target_amount)
+        ratio = _ratio(current, goal.target_amount)
         goal_progress.append(
             GoalProgressOut(
                 goal_id=goal.id,
@@ -660,8 +728,167 @@ async def personal_dashboard(
         emergency_fund_months=emergency_fund_months,
         total_debt=total_debt,
         debt_to_income_ratio=debt_to_income_ratio,
+        cash_flow=_cash_flow_summary(monthly_balances),
+        spending_by_category=_spending_by_category(monthly_balances),
+        business_dependency=_business_dependency(monthly_balances),
         investment_value=investment_value,
         investment_allocation=allocation_rows,
         goal_progress=goal_progress,
         investment_disclaimer=INVESTMENT_DISCLAIMER,
+    )
+
+
+async def create_net_worth_snapshot(
+    db: AsyncSession,
+    *,
+    entity_id: uuid.UUID,
+    as_of: date,
+) -> NetWorthSnapshot:
+    await _get_personal_entity(db, entity_id)
+    cumulative_balances = await _account_balances(db, entity_id=entity_id, date_to=as_of)
+
+    total_assets = ZERO
+    total_liabilities = ZERO
+    breakdown: dict[str, list[dict]] = {"asset": [], "liability": []}
+    for row in cumulative_balances.values():
+        if row["type"] == AccountType.asset:
+            total_assets += row["balance"]
+            breakdown["asset"].append(
+                {
+                    "account_id": str(row["id"]),
+                    "code": row["code"],
+                    "name": row["name"],
+                    "balance": str(to_money(row["balance"])),
+                }
+            )
+        elif row["type"] == AccountType.liability:
+            total_liabilities += row["balance"]
+            breakdown["liability"].append(
+                {
+                    "account_id": str(row["id"]),
+                    "code": row["code"],
+                    "name": row["name"],
+                    "balance": str(to_money(row["balance"])),
+                }
+            )
+
+    total_assets = to_money(total_assets)
+    total_liabilities = to_money(total_liabilities)
+    existing = (
+        await db.execute(
+            select(NetWorthSnapshot).where(
+                NetWorthSnapshot.entity_id == entity_id,
+                NetWorthSnapshot.as_of == as_of,
+            )
+        )
+    ).scalar_one_or_none()
+    if existing is None:
+        existing = NetWorthSnapshot(
+            entity_id=entity_id,
+            as_of=as_of,
+            total_assets=total_assets,
+            total_liabilities=total_liabilities,
+            net_worth=to_money(total_assets - total_liabilities),
+            breakdown=breakdown,
+        )
+        db.add(existing)
+    else:
+        existing.total_assets = total_assets
+        existing.total_liabilities = total_liabilities
+        existing.net_worth = to_money(total_assets - total_liabilities)
+        existing.breakdown = breakdown
+    await db.flush()
+    return existing
+
+
+async def list_net_worth_snapshots(
+    db: AsyncSession,
+    *,
+    entity_id: uuid.UUID,
+    limit: int = 12,
+) -> list[NetWorthSnapshot]:
+    await _get_personal_entity(db, entity_id)
+    rows = (
+        await db.execute(
+            select(NetWorthSnapshot)
+            .where(NetWorthSnapshot.entity_id == entity_id)
+            .order_by(NetWorthSnapshot.as_of.desc())
+            .limit(limit)
+        )
+    ).scalars()
+    return list(rows)
+
+
+def _cash_flow_summary(monthly_balances: dict[uuid.UUID, dict]) -> CashFlowSummaryOut:
+    rows: list[CashFlowAccountRow] = []
+    total = ZERO
+    for row in sorted(monthly_balances.values(), key=lambda item: item["code"]):
+        if row["type"] != AccountType.asset or not row["code"].startswith("11"):
+            continue
+        balance = to_money(row["balance"])
+        total += balance
+        rows.append(
+            CashFlowAccountRow(
+                account_id=row["id"],
+                account_code=row["code"],
+                account_name=row["name"],
+                net_change=balance,
+            )
+        )
+    return CashFlowSummaryOut(total_cash_change=to_money(total), accounts=rows)
+
+
+def _spending_by_category(monthly_balances: dict[uuid.UUID, dict]) -> list[SpendingCategoryRow]:
+    expense_rows = [
+        row for row in monthly_balances.values() if row["type"] == AccountType.expense
+    ]
+    total_expenses = to_money(sum((to_money(row["balance"]) for row in expense_rows), ZERO))
+    out: list[SpendingCategoryRow] = []
+    for row in sorted(expense_rows, key=lambda item: (to_money(item["balance"]) * Decimal("-1"), item["code"])):
+        amount = to_money(row["balance"])
+        out.append(
+            SpendingCategoryRow(
+                account_id=row["id"],
+                account_code=row["code"],
+                account_name=row["name"],
+                amount=amount,
+                share_of_expenses=_ratio(amount, total_expenses),
+            )
+        )
+    return out
+
+
+def _business_dependency(monthly_balances: dict[uuid.UUID, dict]) -> BusinessDependencyOut:
+    owner_draw_income = ZERO
+    salary_income = ZERO
+    other_income = ZERO
+    total_income = ZERO
+    for row in monthly_balances.values():
+        if row["type"] != AccountType.income:
+            continue
+        amount = to_money(row["balance"])
+        total_income += amount
+        if row["code"] == "4200":
+            owner_draw_income += amount
+        elif row["code"] == "4100":
+            salary_income += amount
+        else:
+            other_income += amount
+
+    ratio = _ratio(owner_draw_income, total_income)
+    dominant_source = "none"
+    if owner_draw_income >= salary_income and owner_draw_income >= other_income and owner_draw_income > ZERO:
+        dominant_source = "owner_draws"
+    elif salary_income >= other_income and salary_income > ZERO:
+        dominant_source = "salary"
+    elif other_income > ZERO:
+        dominant_source = "other"
+
+    return BusinessDependencyOut(
+        owner_draw_income=to_money(owner_draw_income),
+        salary_income=to_money(salary_income),
+        other_income=to_money(other_income),
+        business_dependency_ratio=ratio,
+        dominant_source=dominant_source,
+        depends_on_business_income=(ratio >= Decimal("0.50")),
     )

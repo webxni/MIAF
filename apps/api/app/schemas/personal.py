@@ -67,6 +67,27 @@ class BudgetOut(BaseModel):
     lines: list[BudgetLineOut]
 
 
+class BudgetActualLineOut(BaseModel):
+    account_id: uuid.UUID
+    account_code: str
+    account_name: str
+    planned_amount: Decimal
+    actual_amount: Decimal
+    variance_amount: Decimal
+    overspent: bool
+
+
+class BudgetActualsOut(BaseModel):
+    budget_id: uuid.UUID
+    entity_id: uuid.UUID
+    period_start: date
+    period_end: date
+    total_planned: Decimal
+    total_actual: Decimal
+    total_variance: Decimal
+    lines: list[BudgetActualLineOut]
+
+
 class GoalCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     kind: GoalKind
@@ -251,6 +272,47 @@ class InvestmentAllocationRow(BaseModel):
     allocation_ratio: Decimal
 
 
+class SpendingCategoryRow(BaseModel):
+    account_id: uuid.UUID
+    account_code: str
+    account_name: str
+    amount: Decimal
+    share_of_expenses: Decimal
+
+
+class CashFlowAccountRow(BaseModel):
+    account_id: uuid.UUID
+    account_code: str
+    account_name: str
+    net_change: Decimal
+
+
+class CashFlowSummaryOut(BaseModel):
+    total_cash_change: Decimal
+    accounts: list[CashFlowAccountRow]
+
+
+class BusinessDependencyOut(BaseModel):
+    owner_draw_income: Decimal
+    salary_income: Decimal
+    other_income: Decimal
+    business_dependency_ratio: Decimal
+    dominant_source: str
+    depends_on_business_income: bool
+
+
+class NetWorthSnapshotOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    entity_id: uuid.UUID
+    as_of: date
+    total_assets: Decimal
+    total_liabilities: Decimal
+    net_worth: Decimal
+    breakdown: dict | None
+
+
 class PersonalDashboardOut(BaseModel):
     entity_id: uuid.UUID
     as_of: date
@@ -265,6 +327,9 @@ class PersonalDashboardOut(BaseModel):
     emergency_fund_months: Decimal
     total_debt: Decimal
     debt_to_income_ratio: Decimal
+    cash_flow: CashFlowSummaryOut
+    spending_by_category: list[SpendingCategoryRow]
+    business_dependency: BusinessDependencyOut
     investment_value: Decimal
     investment_allocation: list[InvestmentAllocationRow]
     goal_progress: list[GoalProgressOut]

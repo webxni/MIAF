@@ -4,7 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository status
 
-This repo currently contains only `FinClaw.md` — a phased build specification. There is no source code, no `package.json`/`pyproject.toml`, no Dockerfiles, and no git history yet. Treat `FinClaw.md` as the source of truth for architecture, scope, and acceptance criteria. Do not invent additional features, files, or services that the spec does not define.
+This repo is active and already has Phases 0, 1, and 2 backend work landed.
+
+- Phase 0: Docker-first monorepo, compose stack, health checks, Makefile, backup container.
+- Phase 1: accounting core with auth, tenant/entity RBAC, accounts, journal entries, post/void, ledger, trial balance, audit logging, seed data, and tests.
+- Phase 2: personal finance backend with models + migration for budgets, goals, debts, investment accounts/holdings, and net worth snapshots; personal CRUD/reporting endpoints; deterministic personal dashboard KPIs; budget-vs-actuals; persisted net worth snapshots; tests.
+
+Treat `FinClaw.md` as the product contract and this file as the current repo-state memo. Do not assume the repo is empty.
 
 When asked to "build phase N", read that phase block in `FinClaw.md` and implement against its acceptance criteria — those are the contract.
 
@@ -65,7 +71,7 @@ All agent tools (Phase 6) are typed and validated with Pydantic. A `PolicyEngine
 
 ## Commands
 
-Phases 0 (Docker monorepo) and 1 (Accounting Core) have landed. The Docker Compose stack (`compose.yaml` for dev, `compose.prod.yaml` overlay for prod) is the entry point — no host dependencies beyond Docker.
+Phases 0, 1, and 2 backend work have landed. The Docker Compose stack (`compose.yaml` for dev, `compose.prod.yaml` overlay for prod) is the entry point — no host dependencies beyond Docker.
 
 Day-to-day:
 
@@ -92,7 +98,7 @@ Health endpoints (proxied by Caddy under `/api`):
 * `GET /api/health` — liveness, returns `{"status":"ok"}`.
 * `GET /api/health/ready` — readiness, probes postgres (incl. pgvector), redis, and minio.
 
-API surface (Phase 1):
+API surface (Phases 1-2 backend):
 
 * `POST /api/auth/login` `{email, password}` → sets httpOnly `finclaw_session` cookie.
 * `POST /api/auth/logout`, `GET /api/auth/me`.
@@ -101,6 +107,14 @@ API surface (Phase 1):
 * `GET/POST/PATCH/DELETE /api/entities/{id}/journal-entries[/{id}]` plus `/post` and `/void`.
 * `GET /api/entities/{id}/ledger?account_id=...&date_from=...&date_to=...`.
 * `GET /api/entities/{id}/trial-balance?as_of=...`.
+* `GET /api/entities/{id}/personal/dashboard?as_of=...`.
+* `GET/POST/PATCH/DELETE /api/entities/{id}/personal/budgets[/{budget_id}]`.
+* `GET /api/entities/{id}/personal/budgets/{budget_id}/actuals`.
+* `GET/POST/PATCH/DELETE /api/entities/{id}/personal/goals[/{goal_id}]`.
+* `GET/POST/PATCH/DELETE /api/entities/{id}/personal/debts[/{debt_id}]`.
+* `GET/POST/PATCH/DELETE /api/entities/{id}/personal/investments[/{investment_account_id}]`.
+* `POST /api/entities/{id}/personal/net-worth-snapshots?as_of=...`.
+* `GET /api/entities/{id}/personal/net-worth-snapshots?limit=...`.
 
 Default seed credentials (dev only): `owner@example.com` / `change-me-on-first-login`. Override via `SEED_USER_EMAIL`, `SEED_USER_PASSWORD` env vars.
 
@@ -111,5 +125,17 @@ Phase 1 invariants (enforced in `app/services/journal.py` and `app/api/deps.py`)
 * All writes require an authenticated session and a per-entity role.
 * Reports (`trial_balance`, `general_ledger`) include `posted` and `voided` entries; `draft` never counts.
 * All sensitive actions write to `audit_logs` with a redacted before/after.
+
+Phase 2 invariants (enforced in `app/services/personal.py`):
+* Personal endpoints reject business entities (`entity.mode` must be `personal`).
+* Budget lines must point to expense accounts.
+* Savings transfers are excluded from expense/budget actuals because reports derive from expense-account postings only.
+* Debt creation and investment-account creation require explicit `confirmed=true`.
+* Personal dashboard KPIs are deterministic and ledger-derived where possible.
+* Goal progress can derive from linked accounts; debt balances can derive from linked liability accounts.
+* Investment tracking is advisory only and must surface a risk disclaimer.
+
+Phase 3 status:
+* Not landed yet. Start with business source-record models/routes/services plus deterministic reports that reconcile back to the ledger.
 
 Before recommending or running a Make target, prefer `make help` (it prints the live target list parsed from the `Makefile`) over trusting this table — the Makefile is authoritative.
