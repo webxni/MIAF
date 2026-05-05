@@ -23,12 +23,7 @@ from app.errors import (
     NotFoundError,
     UnbalancedEntryError,
 )
-from app.models import (
-    Account,
-    JournalEntry,
-    JournalEntryStatus,
-    JournalLine,
-)
+from app.models import Account, Entity, JournalEntry, JournalEntryStatus, JournalLine
 from app.models.base import utcnow
 from app.money import ZERO, to_money
 from app.schemas.journal import JournalLineIn
@@ -110,6 +105,38 @@ async def _validate_accounts_belong_to_entity(
         )
 
 
+async def _validate_linked_entry(
+    db: AsyncSession,
+    *,
+    entity_id: uuid.UUID,
+    linked_entry_id: uuid.UUID | None,
+) -> None:
+    if linked_entry_id is None:
+        return
+
+    current_entity = await db.get(Entity, entity_id)
+    if current_entity is None:
+        raise NotFoundError(f"Entity {entity_id} not found", code="entity_not_found")
+
+    linked = (
+        await db.execute(
+            select(JournalEntry.id, JournalEntry.entity_id, Entity.tenant_id)
+            .join(Entity, Entity.id == JournalEntry.entity_id)
+            .where(JournalEntry.id == linked_entry_id)
+        )
+    ).first()
+    if linked is None:
+        raise NotFoundError(
+            f"Linked journal entry {linked_entry_id} not found",
+            code="linked_entry_not_found",
+        )
+    if linked.tenant_id != current_entity.tenant_id:
+        raise FinClawError(
+            "Linked journal entry belongs to a different tenant",
+            code="linked_entry_wrong_tenant",
+        )
+
+
 def serialize_entry(entry: JournalEntry) -> dict:
     """Plain dict for audit logs."""
     return {
@@ -176,6 +203,11 @@ async def create_draft(
     await _validate_accounts_belong_to_entity(
         db, entity_id, [ln.account_id for ln in payload.lines]
     )
+    await _validate_linked_entry(
+        db,
+        entity_id=entity_id,
+        linked_entry_id=payload.linked_entry_id,
+    )
     # We don't require balance for drafts but lines must be valid (single-sided, non-negative).
     # Run the per-line check by converting each via _validate_balance — but allow unbalanced totals
     # by catching the unbalanced error specifically? Simpler: enforce single-sidedness inline.
@@ -237,6 +269,13 @@ async def update_draft(
         entry.memo = payload.memo
     if payload.reference is not None:
         entry.reference = payload.reference
+    if payload.linked_entry_id is not None:
+        await _validate_linked_entry(
+            db,
+            entity_id=entry.entity_id,
+            linked_entry_id=payload.linked_entry_id,
+        )
+        entry.linked_entry_id = payload.linked_entry_id
 
     if payload.lines is not None:
         await _validate_accounts_belong_to_entity(

@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.errors import NotFoundError
-from app.models import Entity, EntityMember, EntityMode, Role
+from app.models import Entity, EntityMember, EntityMode, Role, User
 
 
 async def list_entities_for_user(db: AsyncSession, *, user_id: uuid.UUID) -> list[Entity]:
@@ -14,7 +14,11 @@ async def list_entities_for_user(db: AsyncSession, *, user_id: uuid.UUID) -> lis
         await db.execute(
             select(Entity)
             .join(EntityMember, EntityMember.entity_id == Entity.id)
-            .where(EntityMember.user_id == user_id)
+            .join(User, User.id == EntityMember.user_id)
+            .where(
+                EntityMember.user_id == user_id,
+                Entity.tenant_id == User.tenant_id,
+            )
             .order_by(Entity.created_at)
         )
     ).scalars()

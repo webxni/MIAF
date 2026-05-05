@@ -8,8 +8,8 @@ from decimal import Decimal
 import pytest
 from sqlalchemy import select
 
-from app.errors import ImmutableEntryError, UnbalancedEntryError
-from app.models import Account, JournalEntry, JournalEntryStatus
+from app.errors import FinClawError, ImmutableEntryError, NotFoundError, UnbalancedEntryError
+from app.models import Account, Entity, EntityMode, JournalEntry, JournalEntryStatus, Tenant
 from app.schemas.journal import JournalEntryCreate, JournalEntryUpdate, JournalLineIn
 from app.services.journal import (
     create_draft,
@@ -141,3 +141,142 @@ async def test_account_must_belong_to_entity(seeded, db):
         await create_draft(db, entity_id=personal_id, user_id=user_id, payload=payload)
     # service raises FinClawError with code account_wrong_entity
     assert "account_wrong_entity" in str(exc.value) or "account_wrong_entity" == getattr(exc.value, "code", "")
+
+
+async def test_linked_entry_can_reference_other_entity_in_same_tenant(seeded, db):
+    personal_id = uuid.UUID(seeded["personal_entity_id"])
+    business_id = uuid.UUID(seeded["business_entity_id"])
+    user_id = uuid.UUID(seeded["user_id"])
+    p = await _accounts(db, personal_id)
+    b = await _accounts(db, business_id)
+
+    business_entry = await create_draft(
+        db,
+        entity_id=business_id,
+        user_id=user_id,
+        payload=JournalEntryCreate(
+            entry_date=date(2026, 5, 4),
+            memo="Owner draw",
+            lines=[
+                JournalLineIn(account_id=b["3300"].id, debit=Decimal("25.00"), credit=Decimal("0")),
+                JournalLineIn(account_id=b["1110"].id, debit=Decimal("0"), credit=Decimal("25.00")),
+            ],
+        ),
+    )
+
+    personal_entry = await create_draft(
+        db,
+        entity_id=personal_id,
+        user_id=user_id,
+        payload=JournalEntryCreate(
+            entry_date=date(2026, 5, 4),
+            memo="Transfer from business",
+            linked_entry_id=business_entry.id,
+            lines=[
+                JournalLineIn(account_id=p["1110"].id, debit=Decimal("25.00"), credit=Decimal("0")),
+                JournalLineIn(account_id=p["3100"].id, debit=Decimal("0"), credit=Decimal("25.00")),
+            ],
+        ),
+    )
+
+    assert personal_entry.linked_entry_id == business_entry.id
+
+
+async def test_draft_can_add_linked_entry_reference(seeded, db):
+    personal_id = uuid.UUID(seeded["personal_entity_id"])
+    business_id = uuid.UUID(seeded["business_entity_id"])
+    user_id = uuid.UUID(seeded["user_id"])
+    p = await _accounts(db, personal_id)
+    b = await _accounts(db, business_id)
+
+    business_entry = await create_draft(
+        db,
+        entity_id=business_id,
+        user_id=user_id,
+        payload=JournalEntryCreate(
+            entry_date=date(2026, 5, 4),
+            lines=[
+                JournalLineIn(account_id=b["3300"].id, debit=Decimal("40.00"), credit=Decimal("0")),
+                JournalLineIn(account_id=b["1110"].id, debit=Decimal("0"), credit=Decimal("40.00")),
+            ],
+        ),
+    )
+    personal_entry = await create_draft(
+        db,
+        entity_id=personal_id,
+        user_id=user_id,
+        payload=JournalEntryCreate(
+            entry_date=date(2026, 5, 4),
+            lines=[
+                JournalLineIn(account_id=p["1110"].id, debit=Decimal("40.00"), credit=Decimal("0")),
+                JournalLineIn(account_id=p["3100"].id, debit=Decimal("0"), credit=Decimal("40.00")),
+            ],
+        ),
+    )
+
+    updated = await update_draft(
+        db,
+        personal_entry,
+        payload=JournalEntryUpdate(linked_entry_id=business_entry.id),
+    )
+    assert updated.linked_entry_id == business_entry.id
+
+
+async def test_linked_entry_must_exist_in_same_tenant(seeded, db):
+    personal_id = uuid.UUID(seeded["personal_entity_id"])
+    user_id = uuid.UUID(seeded["user_id"])
+    p = await _accounts(db, personal_id)
+
+    other_tenant = Tenant(name="Other Tenant")
+    db.add(other_tenant)
+    await db.flush()
+    other_entity = Entity(
+        tenant_id=other_tenant.id,
+        name="Other Business",
+        mode=EntityMode.business,
+        currency="USD",
+    )
+    db.add(other_entity)
+    await db.flush()
+    foreign_entry = JournalEntry(
+        entity_id=other_entity.id,
+        entry_date=date(2026, 5, 4),
+        memo="Foreign",
+        status=JournalEntryStatus.draft,
+        created_by_id=user_id,
+    )
+    db.add(foreign_entry)
+    await db.flush()
+
+    with pytest.raises(FinClawError) as wrong_tenant:
+        await create_draft(
+            db,
+            entity_id=personal_id,
+            user_id=user_id,
+            payload=JournalEntryCreate(
+                entry_date=date(2026, 5, 4),
+                linked_entry_id=foreign_entry.id,
+                lines=[
+                    JournalLineIn(account_id=p["1110"].id, debit=Decimal("10.00"), credit=Decimal("0")),
+                    JournalLineIn(account_id=p["3100"].id, debit=Decimal("0"), credit=Decimal("10.00")),
+                ],
+            ),
+        )
+    assert wrong_tenant.value.code == "linked_entry_wrong_tenant"
+
+    missing_id = uuid.uuid4()
+    with pytest.raises(NotFoundError) as missing:
+        await create_draft(
+            db,
+            entity_id=personal_id,
+            user_id=user_id,
+            payload=JournalEntryCreate(
+                entry_date=date(2026, 5, 4),
+                linked_entry_id=missing_id,
+                lines=[
+                    JournalLineIn(account_id=p["1110"].id, debit=Decimal("10.00"), credit=Decimal("0")),
+                    JournalLineIn(account_id=p["3100"].id, debit=Decimal("0"), credit=Decimal("10.00")),
+                ],
+            ),
+        )
+    assert missing.value.code == "linked_entry_not_found"

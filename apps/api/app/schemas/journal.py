@@ -36,6 +36,7 @@ class JournalEntryUpdate(BaseModel):
     entry_date: date | None = None
     memo: str | None = Field(default=None, max_length=500)
     reference: str | None = Field(default=None, max_length=100)
+    linked_entry_id: uuid.UUID | None = None
     lines: list[JournalLineIn] | None = Field(default=None, min_length=2)
 
 
