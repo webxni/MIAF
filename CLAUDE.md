@@ -4,11 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository status
 
-This repo is active and already has Phases 0, 1, and 2 backend work landed.
+This repo is active and already has Phases 0, 1, 2, and an initial Phase 3 backend slice landed.
 
 - Phase 0: Docker-first monorepo, compose stack, health checks, Makefile, backup container.
 - Phase 1: accounting core with auth, tenant/entity RBAC, accounts, journal entries, post/void, ledger, trial balance, audit logging, seed data, and tests.
 - Phase 2: personal finance backend with models + migration for budgets, goals, debts, investment accounts/holdings, and net worth snapshots; personal CRUD/reporting endpoints; deterministic personal dashboard KPIs; budget-vs-actuals; persisted net worth snapshots; tests.
+- Phase 3: business backend with models + migration for customers, vendors, invoices, invoice lines, bills, bill lines, payments, tax rates, tax reserves, and closing periods; business CRUD/posting/payment flows; AR aging, AP aging, balance sheet, income statement, cash flow, dashboard, and closing checklist; tests.
 
 Treat `FinClaw.md` as the product contract and this file as the current repo-state memo. Do not assume the repo is empty.
 
@@ -98,7 +99,7 @@ Health endpoints (proxied by Caddy under `/api`):
 * `GET /api/health` — liveness, returns `{"status":"ok"}`.
 * `GET /api/health/ready` — readiness, probes postgres (incl. pgvector), redis, and minio.
 
-API surface (Phases 1-2 backend):
+API surface (Phases 1-3 backend):
 
 * `POST /api/auth/login` `{email, password}` → sets httpOnly `finclaw_session` cookie.
 * `POST /api/auth/logout`, `GET /api/auth/me`.
@@ -115,6 +116,21 @@ API surface (Phases 1-2 backend):
 * `GET/POST/PATCH/DELETE /api/entities/{id}/personal/investments[/{investment_account_id}]`.
 * `POST /api/entities/{id}/personal/net-worth-snapshots?as_of=...`.
 * `GET /api/entities/{id}/personal/net-worth-snapshots?limit=...`.
+* `GET /api/entities/{id}/business/dashboard?as_of=...`.
+* `GET/POST/PATCH/DELETE /api/entities/{id}/business/customers[/{customer_id}]`.
+* `GET/POST/PATCH/DELETE /api/entities/{id}/business/vendors[/{vendor_id}]`.
+* `GET/POST/PATCH /api/entities/{id}/business/invoices[/{invoice_id}]` plus `/post`.
+* `GET/POST/PATCH /api/entities/{id}/business/bills[/{bill_id}]` plus `/post`.
+* `GET/POST /api/entities/{id}/business/payments`.
+* `GET /api/entities/{id}/business/reports/ar-aging?as_of=...`.
+* `GET /api/entities/{id}/business/reports/ap-aging?as_of=...`.
+* `GET /api/entities/{id}/business/reports/balance-sheet?as_of=...`.
+* `GET /api/entities/{id}/business/reports/income-statement?date_from=...&date_to=...`.
+* `GET /api/entities/{id}/business/reports/cash-flow?date_from=...&date_to=...`.
+* `GET /api/entities/{id}/business/reports/closing-checklist?as_of=...`.
+* `GET/POST /api/entities/{id}/business/tax-rates`.
+* `GET/POST /api/entities/{id}/business/tax-reserves`.
+* `GET/POST /api/entities/{id}/business/closing-periods`.
 
 Default seed credentials (dev only): `owner@example.com` / `change-me-on-first-login`. Override via `SEED_USER_EMAIL`, `SEED_USER_PASSWORD` env vars.
 
@@ -136,6 +152,12 @@ Phase 2 invariants (enforced in `app/services/personal.py`):
 * Investment tracking is advisory only and must surface a risk disclaimer.
 
 Phase 3 status:
-* Not landed yet. Start with business source-record models/routes/services plus deterministic reports that reconcile back to the ledger.
+* Business endpoints reject personal entities (`entity.mode` must be `business`).
+* Invoice posting creates accrual-basis ledger entries: debit `1200` AR, credit income accounts from invoice lines.
+* Bill posting creates accrual-basis ledger entries: debit expense/asset accounts from bill lines, credit `2100` AP.
+* Customer payments post `Dr 1110 / Cr 1200`; vendor payments post `Dr 2100 / Cr 1110`.
+* AR/AP aging is computed from open posted/partial invoices and bills using `balance_due` and due dates.
+* Balance sheet, income statement, cash flow, and dashboard are deterministic and derive from posted ledger balances.
+* Tax reserve reports must still be labeled as estimates until jurisdiction-specific tax logic exists.
 
 Before recommending or running a Make target, prefer `make help` (it prints the live target list parsed from the `Makefile`) over trusting this table — the Makefile is authoritative.

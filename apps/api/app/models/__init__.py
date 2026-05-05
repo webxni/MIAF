@@ -8,6 +8,21 @@ from app.models.attachment import Attachment
 from app.models.audit import AuditLog
 from app.models.base import Base
 from app.models.budget import Budget, BudgetLine
+from app.models.business import (
+    Bill,
+    BillLine,
+    BusinessDocumentStatus,
+    ClosingPeriod,
+    ClosingPeriodStatus,
+    Customer,
+    Invoice,
+    InvoiceLine,
+    Payment,
+    PaymentKind,
+    TaxRate,
+    TaxReserve,
+    Vendor,
+)
 from app.models.debt import Debt, DebtKind, DebtStatus
 from app.models.entity import Entity, EntityMember, EntityMode, Role
 from app.models.goal import Goal, GoalKind, GoalStatus
@@ -34,8 +49,14 @@ __all__ = [
     "Attachment",
     "AuditLog",
     "Base",
+    "Bill",
+    "BillLine",
     "Budget",
     "BudgetLine",
+    "BusinessDocumentStatus",
+    "ClosingPeriod",
+    "ClosingPeriodStatus",
+    "Customer",
     "Debt",
     "DebtKind",
     "DebtStatus",
@@ -49,15 +70,22 @@ __all__ = [
     "InvestmentAccount",
     "InvestmentAccountKind",
     "InvestmentHolding",
+    "Invoice",
+    "InvoiceLine",
     "JournalEntry",
     "JournalEntryStatus",
     "JournalLine",
     "NetWorthSnapshot",
     "NormalSide",
+    "Payment",
+    "PaymentKind",
     "Role",
     "Session",
     "SourceTransaction",
     "SourceTransactionStatus",
+    "TaxRate",
+    "TaxReserve",
     "Tenant",
     "User",
+    "Vendor",
 ]
