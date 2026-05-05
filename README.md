@@ -12,7 +12,10 @@ The full product spec, build phases, and acceptance criteria live in [`FinClaw.m
 
 ## Status
 
-**Phase 0 — Docker-first monorepo.** Scaffolds the repo layout, a working `docker compose up` stack (api, web, worker, scheduler, postgres+pgvector, redis, minio, caddy, backup), and a basic API health endpoint. No business logic yet — that begins in Phase 1 (Accounting Core).
+* **Phase 0 — Docker-first monorepo:** complete. Working `docker compose up` stack (api, web, worker, scheduler, postgres+pgvector, redis, minio, caddy, backup); health endpoints; non-root containers; dev/prod compose overlays.
+* **Phase 1 — Accounting Core:** complete. SQLAlchemy models for tenants, users, sessions, entities, entity_members, accounts, journal_entries, journal_lines, source_transactions, attachments, audit_logs. Alembic migrations. Argon2 sessions. CRUD for entities/accounts/journal entries. Post + void (via reversal) with full immutability of posted entries. General ledger and trial balance. Per-entity RBAC (owner/admin/accountant/viewer/agent). Append-only audit logs with secret redaction. Seed creates one personal + one business entity with default charts of accounts (26 / 30 accounts). 21 pytest cases covering balance checks, immutability, void semantics, and trial balance correctness.
+
+Next: **Phase 2 — Personal Finance Mode** (budgets, goals, debts, net-worth snapshots, personal KPIs).
 
 ## Repo layout
 

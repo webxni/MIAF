@@ -65,7 +65,7 @@ All agent tools (Phase 6) are typed and validated with Pydantic. A `PolicyEngine
 
 ## Commands
 
-Phase 0 has landed. The Docker Compose stack (`compose.yaml` for dev, `compose.prod.yaml` overlay for prod) is the entry point — no host dependencies beyond Docker.
+Phases 0 (Docker monorepo) and 1 (Accounting Core) have landed. The Docker Compose stack (`compose.yaml` for dev, `compose.prod.yaml` overlay for prod) is the entry point — no host dependencies beyond Docker.
 
 Day-to-day:
 
@@ -78,6 +78,11 @@ Day-to-day:
 | `make ps` | Service status |
 | `make restart` | Restart all services |
 | `make api-shell` / `make web-shell` / `make db-shell` / `make redis-shell` | Open a shell in the named container |
+| `make migrate` | `python -m app.cli migrate` (alembic upgrade head) inside api container |
+| `make seed` | `python -m app.cli seed` — idempotent seed of tenant/user/entities/COA |
+| `make test` | Run pytest inside api container (uses `finclaw_test` DB) |
+| `make revision m="..."` | `alembic revision --autogenerate -m "..."` |
+| `make bootstrap` | `up` + `migrate` + `seed` |
 | `make smoke` | Curl `/api/health` and `/api/health/ready` through Caddy |
 | `make clean` | **Destructive.** Stop everything and delete all volumes |
 | `make prod-up` / `make prod-down` / `make prod-build` | Production compose overlay |
@@ -87,6 +92,24 @@ Health endpoints (proxied by Caddy under `/api`):
 * `GET /api/health` — liveness, returns `{"status":"ok"}`.
 * `GET /api/health/ready` — readiness, probes postgres (incl. pgvector), redis, and minio.
 
-There is no test/lint command yet. Phase 1 will introduce a Python test runner for the ledger; web tests come in Phase 5.
+API surface (Phase 1):
+
+* `POST /api/auth/login` `{email, password}` → sets httpOnly `finclaw_session` cookie.
+* `POST /api/auth/logout`, `GET /api/auth/me`.
+* `GET/POST /api/entities`, `GET/PATCH /api/entities/{id}`.
+* `GET/POST/PATCH/DELETE /api/entities/{id}/accounts[/{id}]`.
+* `GET/POST/PATCH/DELETE /api/entities/{id}/journal-entries[/{id}]` plus `/post` and `/void`.
+* `GET /api/entities/{id}/ledger?account_id=...&date_from=...&date_to=...`.
+* `GET /api/entities/{id}/trial-balance?as_of=...`.
+
+Default seed credentials (dev only): `owner@example.com` / `change-me-on-first-login`. Override via `SEED_USER_EMAIL`, `SEED_USER_PASSWORD` env vars.
+
+Phase 1 invariants (enforced in `app/services/journal.py` and `app/api/deps.py`):
+* Every posted entry balances (sum debits == sum credits, > 0).
+* Each line is single-sided (DB CHECK + service-layer guard).
+* Posted entries are immutable; voiding is via paired reversal entry that keeps both on the ledger (`status` becomes `voided` on the original; the reversal stays `posted`).
+* All writes require an authenticated session and a per-entity role.
+* Reports (`trial_balance`, `general_ledger`) include `posted` and `voided` entries; `draft` never counts.
+* All sensitive actions write to `audit_logs` with a redacted before/after.
 
 Before recommending or running a Make target, prefer `make help` (it prints the live target list parsed from the `Makefile`) over trusting this table — the Makefile is authoritative.

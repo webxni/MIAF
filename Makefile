@@ -8,7 +8,8 @@ COMPOSE_PROD := docker compose -f compose.yaml -f compose.prod.yaml
 .PHONY: help env up down build rebuild logs ps restart clean \
         api-shell web-shell db-shell redis-shell \
         api-logs web-logs worker-logs scheduler-logs \
-        prod-up prod-down prod-build smoke
+        prod-up prod-down prod-build smoke \
+        migrate seed test bootstrap revision
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
@@ -63,6 +64,21 @@ smoke: ## Curl health endpoints (requires `make up` first)
 	@curl -fsS http://localhost:$${HTTP_PORT:-80}/api/health && echo
 	@echo "GET /health/ready"
 	@curl -fsS http://localhost:$${HTTP_PORT:-80}/api/health/ready && echo
+
+migrate: ## Apply database migrations (alembic upgrade head)
+	$(COMPOSE) exec -T api python -m app.cli migrate
+
+seed: ## Seed default tenant, user, entities, and charts of accounts (idempotent)
+	$(COMPOSE) exec -T api python -m app.cli seed
+
+test: ## Run api tests inside the api container (uses finclaw_test database)
+	$(COMPOSE) exec -T api pytest -q
+
+revision: ## Generate an Alembic revision: make revision m="add foo"
+	@test -n "$(m)" || (echo "usage: make revision m=\"message\"" && exit 1)
+	$(COMPOSE) exec -T api alembic revision --autogenerate -m "$(m)"
+
+bootstrap: up migrate seed ## Up the stack, run migrations, seed
 
 prod-up: ## Start production stack (detached)
 	$(COMPOSE_PROD) up -d --build

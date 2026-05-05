@@ -23,6 +23,14 @@ class Settings(BaseSettings):
     minio_bucket: str = Field(alias="MINIO_BUCKET")
     minio_secure: bool = Field(default=False, alias="MINIO_SECURE")
 
+    # Auth / sessions
+    session_cookie_name: str = Field(default="finclaw_session", alias="SESSION_COOKIE_NAME")
+    session_ttl_hours: int = Field(default=24 * 14, alias="SESSION_TTL_HOURS")  # 14 days
+
+    @property
+    def session_cookie_secure(self) -> bool:
+        return self.environment == "production"
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
