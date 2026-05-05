@@ -7,12 +7,22 @@ from app.models.account import Account, AccountType, NormalSide
 from app.models.attachment import Attachment
 from app.models.audit import AuditLog
 from app.models.base import Base
+from app.models.budget import Budget, BudgetLine
+from app.models.debt import Debt, DebtKind, DebtStatus
 from app.models.entity import Entity, EntityMember, EntityMode, Role
+from app.models.goal import Goal, GoalKind, GoalStatus
+from app.models.investment import (
+    HoldingKind,
+    InvestmentAccount,
+    InvestmentAccountKind,
+    InvestmentHolding,
+)
 from app.models.journal import (
     JournalEntry,
     JournalEntryStatus,
     JournalLine,
 )
+from app.models.net_worth import NetWorthSnapshot
 from app.models.session import Session
 from app.models.source_transaction import SourceTransaction, SourceTransactionStatus
 from app.models.tenant import Tenant
@@ -24,12 +34,25 @@ __all__ = [
     "Attachment",
     "AuditLog",
     "Base",
+    "Budget",
+    "BudgetLine",
+    "Debt",
+    "DebtKind",
+    "DebtStatus",
     "Entity",
     "EntityMember",
     "EntityMode",
+    "Goal",
+    "GoalKind",
+    "GoalStatus",
+    "HoldingKind",
+    "InvestmentAccount",
+    "InvestmentAccountKind",
+    "InvestmentHolding",
     "JournalEntry",
     "JournalEntryStatus",
     "JournalLine",
+    "NetWorthSnapshot",
     "NormalSide",
     "Role",
     "Session",
