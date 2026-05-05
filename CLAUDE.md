@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository status
 
-This repo is active and already has Phases 0, 1, 2, 3, 4, an initial Phase 5 web slice, an initial Phase 6 agent-core slice, an initial Phase 7 memory backend slice, an initial Phase 8 heartbeat/scheduler backend slice, a Phase 9 skills engine slice, a Phase 10 Telegram backend slice, a Phase 11 reporting/analysis slice, and a first Phase 12 security-hardening slice landed.
+This repo is active and already has Phases 0, 1, 2, 3, 4, an initial Phase 5 web slice, an initial Phase 6 agent-core slice, an initial Phase 7 memory backend slice, an initial Phase 8 heartbeat/scheduler backend slice, a Phase 9 skills engine slice, a Phase 10 Telegram backend slice, a Phase 11 reporting/analysis slice, a first Phase 12 security-hardening slice, and a Phase 13 end-to-end backend flow test landed.
 
 - Phase 0: Docker-first monorepo, compose stack, health checks, Makefile, backup container.
 - Phase 1: accounting core with auth, tenant/entity RBAC, accounts, journal entries, post/void, ledger, trial balance, audit logging, seed data, and tests.
@@ -19,6 +19,7 @@ This repo is active and already has Phases 0, 1, 2, 3, 4, an initial Phase 5 web
 - Phase 10: Telegram backend slice now exists with `app/models/telegram.py`, `app/services/telegram.py`, `app/schemas/telegram.py`, `app/api/telegram.py`, migration `0008_telegram.py`, and tests for allowlisted routing, personal/business flows, receipt uploads, and summary commands.
 - Phase 11: reporting/analysis slice now extends the personal and business report services with debt payoff plans, emergency fund plans, investment allocation summaries, business dependency reports, revenue-by-customer, expenses-by-vendor, gross margin, runway, tax reserve reports, and deterministic explanation endpoints that cite internal facts; tests cover both personal and business analytic reports.
 - Phase 12: security-hardening slice now adds explicit CORS allowlist config, login-attempt persistence, login throttling, successful/failed login attempt recording, and failed-login audit coverage for known users.
+- Phase 13: a composed end-to-end backend demo flow now exists in pytest, covering login, CSV import, receipt ingestion and approval, customer invoice posting and payment, vendor bill posting, owner-draw linkage across business and personal entities, report refresh, heartbeat alerting, weekly reporting, and audit-log presence.
 
 Treat `FinClaw.md` as the product contract and this file as the current repo-state memo. Do not assume the repo is empty.
 
@@ -287,5 +288,11 @@ Phase 12 status:
 * API startup now installs `CORSMiddleware` using the `CORS_ALLOW_ORIGINS` setting.
 * This is only a first Phase 12 slice. Backup execution/restore verification, export auditing, and stronger cross-endpoint rate limits are still outstanding future work.
 * Tests for this slice live in `apps/api/tests/test_auth_security.py`.
+
+Phase 13 status:
+* End-to-end backend coverage lives in `apps/api/tests/test_e2e_flow.py`.
+* The test composes real phase services rather than mocking business logic: auth login, CSV import, receipt ingestion, candidate approval, journal posting, invoicing, payment recording, owner draws, personal budgeting, statements, heartbeat checks, weekly reports, and audit presence.
+* File storage is still mocked at the object-store boundary in this test, consistent with the existing ingestion tests; business logic and persistence still execute against the test database.
+* This is a backend/service-level end-to-end flow. The known unresolved Phase 5 web build issue still means there is not yet a full browser-level end-to-end story.
 
 Before recommending or running a Make target, prefer `make help` (it prints the live target list parsed from the `Makefile`) over trusting this table — the Makefile is authoritative.
