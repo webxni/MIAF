@@ -9,6 +9,8 @@ from app.api.auth import router as auth_router
 from app.api.business import router as business_router
 from app.api.documents import router as documents_router
 from app.api.entities import router as entities_router
+from app.api.heartbeat import internal_router as internal_heartbeat_router
+from app.api.heartbeat import router as heartbeat_router
 from app.api.journal import router as journal_router
 from app.api.ledger import router as ledger_router
 from app.api.memory import router as memory_router
@@ -51,6 +53,8 @@ app.include_router(business_router)
 app.include_router(documents_router)
 app.include_router(agent_router)
 app.include_router(memory_router)
+app.include_router(heartbeat_router)
+app.include_router(internal_heartbeat_router)
 
 
 @app.get("/", tags=["meta"])

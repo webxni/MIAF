@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository status
 
-This repo is active and already has Phases 0, 1, 2, 3, 4, an initial Phase 5 web slice, an initial Phase 6 agent-core slice, and an initial Phase 7 memory backend slice landed.
+This repo is active and already has Phases 0, 1, 2, 3, 4, an initial Phase 5 web slice, an initial Phase 6 agent-core slice, an initial Phase 7 memory backend slice, and an initial Phase 8 heartbeat/scheduler backend slice landed.
 
 - Phase 0: Docker-first monorepo, compose stack, health checks, Makefile, backup container.
 - Phase 1: accounting core with auth, tenant/entity RBAC, accounts, journal entries, post/void, ledger, trial balance, audit logging, seed data, and tests.
@@ -14,6 +14,7 @@ This repo is active and already has Phases 0, 1, 2, 3, 4, an initial Phase 5 web
 - Phase 5: web app now has protected route scaffolding, login, dashboard/personal/business/documents/settings/audit pages, shared shell/components, and placeholder route anchors for the deeper views. The current blocker is a Next.js prerender/runtime failure inside the container build (`docker compose exec -T web npm run build`) showing `TypeError: Cannot read properties of null (reading 'useContext')` during static page generation plus the built-in `/500` path complaining about `<Html>` outside `_document`. Treat this as an unresolved frontend build issue, not as finished Phase 5 acceptance.
 - Phase 6: agent backend slice now exists with `app/api/agent.py`, `app/services/agent.py`, and `app/schemas/agent.py`; it provides an audited `/api/agent/chat` endpoint, typed tool registry, heuristic provider abstraction, policy/confirmation gates, and tests for personal-expense drafting/posting, business invoice drafting, balance-sheet explanation, and personal-vs-business comparison.
 - Phase 7: memory backend slice now exists with `app/models/memory.py`, `app/services/memory.py`, `app/schemas/memory.py`, `app/api/memory.py`, and migration `0005_memory.py`; it provides consent-gated durable memory creation, deterministic search, review/expire/forget flows, append-only memory events, deterministic embeddings metadata, and tests.
+- Phase 8: heartbeat backend slice now exists with `app/models/heartbeat.py`, `app/services/heartbeat.py`, `app/schemas/heartbeat.py`, `app/api/heartbeat.py`, migration `0006_heartbeat_ops.py`, and a scheduler hook in `services/scheduler/scheduler/main.py`; it provides persistent heartbeat runs, alerts, generated reports, manual run endpoints, token-protected internal scheduled execution, and tests.
 
 Treat `FinClaw.md` as the product contract and this file as the current repo-state memo. Do not assume the repo is empty.
 
@@ -144,6 +145,11 @@ API surface (Phases 1-6 backend):
 * `GET/PATCH/DELETE /api/memory/{memory_id}`.
 * `POST /api/memory/{memory_id}/review`.
 * `POST /api/memory/{memory_id}/expire`.
+* `POST /api/heartbeat/run`.
+* `GET /api/heartbeat/runs`.
+* `GET /api/heartbeat/alerts`.
+* `GET /api/heartbeat/reports`.
+* `POST /api/internal/heartbeat/run-defaults` with `x-automation-token`.
 
 Default seed credentials (dev only): `owner@example.com` / `change-me-on-first-login`. Override via `SEED_USER_EMAIL`, `SEED_USER_PASSWORD` env vars.
 
@@ -203,5 +209,15 @@ Phase 7 status:
 * `delete` is implemented as a "forget this" soft-delete (`is_active=false` plus event/audit trail), not as destructive row removal.
 * Every memory create/update/review/expire/delete route writes normal audit logs, and the memory service itself appends `memory_events`.
 * Tests for the memory slice live in `apps/api/tests/test_memory.py`.
+
+Phase 8 status:
+* Heartbeat models live in `app/models/heartbeat.py`: `HeartbeatRun`, `Alert`, and `GeneratedReport`.
+* The implemented heartbeat types are currently: `daily_personal_check`, `daily_business_check`, and `weekly_business_report`. Other contract heartbeat types remain future work.
+* `run_heartbeat()` persists a run record, creates alerts/reports deterministically from current finance data, and writes heartbeat audit logs for both manual and scheduler-triggered runs.
+* Personal checks currently flag low emergency funds, debts due within 7 days, and current-period budget overspends.
+* Business checks currently flag low cash runway, overdue invoices/bills, and tax-reserve gaps.
+* Weekly business reports are stored in `generated_reports` as markdown text.
+* The scheduler no longer just logs `tick`; it now POSTs to the internal heartbeat endpoint using `API_HEARTBEAT_URL` and `AUTOMATION_TOKEN`.
+* Tests for the heartbeat slice live in `apps/api/tests/test_heartbeat.py`.
 
 Before recommending or running a Make target, prefer `make help` (it prints the live target list parsed from the `Makefile`) over trusting this table — the Makefile is authoritative.

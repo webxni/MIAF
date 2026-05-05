@@ -168,6 +168,8 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-finclaw}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-finclaw}
       HEARTBEAT_INTERVAL_SECONDS: ${HEARTBEAT_INTERVAL_SECONDS:-300}
+      API_HEARTBEAT_URL: ${API_HEARTBEAT_URL:-http://api:8000/internal/heartbeat/run-defaults}
+      AUTOMATION_TOKEN: ${AUTOMATION_TOKEN:-dev-automation-token}
     volumes:
       - ./services/scheduler:/srv/scheduler
     depends_on:

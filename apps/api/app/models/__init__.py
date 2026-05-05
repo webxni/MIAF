@@ -26,6 +26,16 @@ from app.models.business import (
 from app.models.debt import Debt, DebtKind, DebtStatus
 from app.models.entity import Entity, EntityMember, EntityMode, Role
 from app.models.goal import Goal, GoalKind, GoalStatus
+from app.models.heartbeat import (
+    Alert,
+    AlertSeverity,
+    AlertStatus,
+    GeneratedReport,
+    HeartbeatRun,
+    HeartbeatRunStatus,
+    HeartbeatType,
+    ReportKind,
+)
 from app.models.ingestion import (
     CandidateStatus,
     DocumentExtraction,
@@ -82,9 +92,13 @@ __all__ = [
     "EntityMode",
     "ExtractionCandidate",
     "ExtractionStatus",
+    "GeneratedReport",
     "Goal",
     "GoalKind",
     "GoalStatus",
+    "HeartbeatRun",
+    "HeartbeatRunStatus",
+    "HeartbeatType",
     "HoldingKind",
     "ImportBatch",
     "ImportBatchStatus",
@@ -96,6 +110,9 @@ __all__ = [
     "JournalEntry",
     "JournalEntryStatus",
     "JournalLine",
+    "Alert",
+    "AlertSeverity",
+    "AlertStatus",
     "Memory",
     "MemoryEmbedding",
     "MemoryEvent",
@@ -108,6 +125,7 @@ __all__ = [
     "NormalSide",
     "Payment",
     "PaymentKind",
+    "ReportKind",
     "Role",
     "Session",
     "SourceTransaction",
