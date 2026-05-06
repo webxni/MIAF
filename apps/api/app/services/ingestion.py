@@ -147,6 +147,17 @@ def detect_upload_type(filename: str, content_type: str, size_bytes: int) -> Det
 
 
 def _printable_pdf_text(data: bytes) -> str:
+    try:
+        import pypdf
+        import io
+        reader = pypdf.PdfReader(io.BytesIO(data))
+        pages = [page.extract_text() or "" for page in reader.pages]
+        text = "\n".join(pages).strip()
+        if text:
+            return _sanitize_extracted_text(text)
+    except Exception:
+        pass
+    # Regex fallback for encrypted or unsupported PDFs
     decoded = data.decode("latin-1", errors="ignore")
     chunks = re.findall(r"[A-Za-z0-9][A-Za-z0-9 \t,:;./$%()#&'\"-]{5,}", decoded)
     cleaned_chunks = [chunk.strip() for chunk in chunks if chunk.strip()]

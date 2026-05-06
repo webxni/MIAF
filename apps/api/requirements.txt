@@ -21,6 +21,7 @@ anthropic==0.39.0
 openai>=1.0.0
 pytesseract==0.3.13
 Pillow==11.0.0
+pypdf==4.3.1
 
 # --- dev / test ---
 pytest==8.3.4

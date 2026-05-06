@@ -346,8 +346,23 @@ export async function entities(): Promise<Entity[]> {
   return apiFetch<Entity[]>("/entities");
 }
 
+export type SkillRunLog = {
+  id: string;
+  skill_name: string;
+  skill_version: string;
+  result_status: string;
+  created_at: string;
+  entity_id: string | null;
+  input_payload: Record<string, unknown> | null;
+  output_payload: Record<string, unknown> | null;
+};
+
 export async function listSkills(): Promise<SkillManifest[]> {
   return apiFetch<SkillManifest[]>("/skills");
+}
+
+export async function listSkillRuns(limit = 20): Promise<SkillRunLog[]> {
+  return apiFetch<SkillRunLog[]>(`/skills/runs?limit=${limit}`);
 }
 
 export async function listAuditLogs(params: {
