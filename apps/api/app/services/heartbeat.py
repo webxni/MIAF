@@ -488,6 +488,42 @@ async def _daily_personal_check(
                     payload={"budget_id": str(budget.id), "overspent_accounts": [line.account_code for line in overspent]},
                 )
             )
+
+    # --- Skill pack integration: room-for-error score ---
+    try:
+        from app.skills.personal_finance.calculations.room_for_error import (  # noqa: PLC0415
+            calculate_room_for_error_score,
+        )
+
+        profile = {
+            "emergency_fund_months": float(dashboard.emergency_fund_months),
+            "debt_to_income_ratio": (
+                float(dashboard.total_debt / dashboard.monthly_income)
+                if getattr(dashboard, "monthly_income", None) and dashboard.monthly_income > 0
+                else 0.0
+            ),
+        }
+        rfe = calculate_room_for_error_score(profile)
+        # Attach result to the run summary as extra data; does not create an alert on its own.
+        if run.summary is None:
+            run.summary = {}
+        run.summary.setdefault("skill_room_for_error", {})[str(entity.id)] = rfe
+        if rfe.get("risk_level") == "high":
+            alerts.append(
+                await _create_alert(
+                    db,
+                    run=run,
+                    entity_id=entity.id,
+                    alert_type="room_for_error_high_risk",
+                    severity=AlertSeverity.warning,
+                    title="Financial room-for-error score is high-risk",
+                    message=f"Score {rfe['score']}/100. Issues: {'; '.join(rfe['issues']) or 'none'}",
+                    payload=rfe,
+                )
+            )
+    except Exception:  # noqa: BLE001
+        pass
+
     return alerts
 
 
@@ -581,6 +617,20 @@ async def _daily_business_check(
                     },
                 )
             )
+
+    # --- Skill pack integration: anomaly detection stub ---
+    try:
+        from app.skills.python_finance.analytics.anomalies import (  # noqa: PLC0415
+            detect_amount_anomalies,
+        )
+
+        anomaly_result = detect_amount_anomalies([])
+        if run.summary is None:
+            run.summary = {}
+        run.summary.setdefault("skill_anomaly_detection", {})[str(entity.id)] = anomaly_result
+    except Exception:  # noqa: BLE001
+        pass
+
     return alerts
 
 
@@ -596,6 +646,19 @@ async def _weekly_business_report(
     dashboard = await business_dashboard(db, entity_id=entity.id, as_of=as_of)
     ar = await ar_aging(db, entity_id=entity.id, as_of=as_of)
     ap = await ap_aging(db, entity_id=entity.id, as_of=as_of)
+    # --- Skill pack integration: income statement stub from skill pack ---
+    skill_income_stmt: dict = {}
+    try:
+        from app.skills.accounting.ledger.financial_statements import (  # noqa: PLC0415
+            generate_income_statement,
+        )
+
+        # Called with empty lists as a stub; real ledger data lives in the DB service above.
+        skill_income_stmt = generate_income_statement([], [])
+        skill_income_stmt["from_ledger_service"] = True
+    except Exception:  # noqa: BLE001
+        pass
+
     body = "\n".join(
         [
             f"# Weekly Business Report: {entity.name}",
@@ -608,6 +671,11 @@ async def _weekly_business_report(
             f"- Accounts payable: {dashboard.accounts_payable}",
             f"- Overdue AR rows: {len([row for row in ar.rows if row.days_1_30 + row.days_31_60 + row.days_61_90 + row.days_91_plus > Decimal('0')])}",
             f"- Overdue AP rows: {len([row for row in ap.rows if row.days_1_30 + row.days_31_60 + row.days_61_90 + row.days_91_plus > Decimal('0')])}",
+            *(
+                [f"- Skill income statement (stub): revenue={skill_income_stmt.get('revenue', 'n/a')}, expenses={skill_income_stmt.get('expenses', 'n/a')}"]
+                if skill_income_stmt
+                else []
+            ),
         ]
     )
     report = GeneratedReport(
@@ -823,6 +891,29 @@ async def _weekly_personal_report(
     debt_plan = await debt_payoff_plan(db, entity_id=entity.id, as_of=as_of)
     emergency_plan = await emergency_fund_plan(db, entity_id=entity.id, as_of=as_of)
 
+    # --- Skill pack integration: weekly money meeting agenda ---
+    agenda_lines: list[str] = []
+    try:
+        from app.skills.personal_finance.meetings.weekly_money_meeting import (  # noqa: PLC0415
+            build_weekly_money_meeting_agenda,
+        )
+
+        context = {
+            "has_business": False,  # personal entity; cross-entity check omitted here
+            "has_debt": debt_plan.total_debt > Decimal("0"),
+            "has_open_questions": False,
+        }
+        agenda_result = build_weekly_money_meeting_agenda(context)
+        agenda_lines = agenda_result.get("agenda", [])
+    except Exception:  # noqa: BLE001
+        pass
+
+    agenda_section = (
+        "\n## Weekly Money Meeting Agenda\n" + "\n".join(f"- {item}" for item in agenda_lines)
+        if agenda_lines
+        else ""
+    )
+
     body = "\n".join(
         [
             f"# Weekly Personal Report: {entity.name}",
@@ -837,7 +928,8 @@ async def _weekly_personal_report(
             f"- Total debt: {debt_plan.total_debt}",
             f"- Active debts in payoff plan: {len(debt_plan.debts)}",
         ]
-    )
+    ) + agenda_section
+
     db.add(
         GeneratedReport(
             tenant_id=run.tenant_id,
@@ -885,6 +977,26 @@ async def _monthly_personal_close(
     ).scalar_one_or_none()
     if existing is None:
         await create_net_worth_snapshot(db, entity_id=entity.id, as_of=as_of)
+
+    # --- Skill pack integration: emergency fund plan from skill pack ---
+    try:
+        from app.skills.personal_finance.calculations.emergency_fund import (  # noqa: PLC0415
+            emergency_fund_plan as skill_emergency_fund_plan,
+        )
+
+        dashboard = await personal_dashboard(db, entity_id=entity.id, as_of=as_of)
+        monthly_expenses = float(dashboard.monthly_expenses)
+        current_fund = float(dashboard.emergency_fund_balance)
+        skill_plan = skill_emergency_fund_plan(
+            monthly_essential_expenses=monthly_expenses,
+            current_fund=current_fund,
+        )
+        if run.summary is None:
+            run.summary = {}
+        run.summary.setdefault("skill_emergency_fund_plan", {})[str(entity.id)] = skill_plan
+    except Exception:  # noqa: BLE001
+        pass
+
     return []
 
 

@@ -1,0 +1,1 @@
+{"name":"lifestyle_creep_detector","version":"1.0.0","description":"Detects when expenses grow faster than income across monthly periods.","mode":"personal","permissions":["read_reports","write_memory"],"triggers":["lifestyle creep","spending growth","income vs spending"],"tools_used":[],"requires_confirmation":false,"risk_level":"low","entrypoint":"handler.py"}

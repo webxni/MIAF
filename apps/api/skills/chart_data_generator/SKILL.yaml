@@ -1,0 +1,1 @@
+{"name":"chart_data_generator","version":"1.0.0","description":"Converts analytics outputs into dashboard-ready chart JSON for line, bar, pie, and multi-line charts.","mode":"both","permissions":["read_reports"],"triggers":["chart","dashboard","visualization"],"tools_used":[],"requires_confirmation":false,"risk_level":"low","entrypoint":"handler.py"}

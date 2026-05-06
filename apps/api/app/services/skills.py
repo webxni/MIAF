@@ -366,4 +366,186 @@ async def _execute_skill(
             "memory_matches": [row.title for row in related],
             "coaching_note": "Keep budget categories aligned with real expense accounts and review overspends weekly.",
         }
+
+    # ── Python Finance Pack ──────────────────────────────────────────────────
+    if name == "financial_time_series_analyzer":
+        _require_permissions(skill, "read_transactions", "read_reports")
+        from app.skills.python_finance.analytics.time_series import analyze_time_series
+        observations = input_payload.get("observations") or []
+        return analyze_time_series(
+            observations,
+            value_col=input_payload.get("value_col", "value"),
+            date_col=input_payload.get("date_col", "date"),
+            frequency=input_payload.get("frequency", "ME"),
+            aggregation=input_payload.get("aggregation", "sum"),
+        )
+
+    if name == "returns_calculator":
+        _require_permissions(skill, "read_reports")
+        from app.skills.python_finance.analytics.returns import calculate_returns
+        return calculate_returns(
+            input_payload.get("observations") or [],
+            value_col=input_payload.get("value_col", "value"),
+            date_col=input_payload.get("date_col", "date"),
+            periods_per_year=int(input_payload.get("periods_per_year", 252)),
+        )
+
+    if name == "rolling_statistics_calculator":
+        _require_permissions(skill, "read_transactions", "read_reports")
+        from app.skills.python_finance.analytics.rolling import calculate_rolling_statistics
+        return calculate_rolling_statistics(
+            input_payload.get("observations") or [],
+            value_col=input_payload.get("value_col", "value"),
+            date_col=input_payload.get("date_col", "date"),
+            window=int(input_payload.get("window", 30)),
+        )
+
+    if name == "risk_metrics_calculator":
+        _require_permissions(skill, "read_reports")
+        from app.skills.python_finance.analytics.risk import calculate_risk_metrics
+        returns = input_payload.get("returns") or []
+        confidence = float(input_payload.get("confidence_level", 0.95))
+        return calculate_risk_metrics(returns, confidence_level=confidence)
+
+    if name == "portfolio_allocation_analyzer":
+        _require_permissions(skill, "read_reports")
+        from app.skills.python_finance.analytics.portfolio import calculate_portfolio_allocation
+        return calculate_portfolio_allocation(
+            input_payload.get("holdings") or [],
+            group_col=input_payload.get("group_col", "asset_class"),
+            value_col=input_payload.get("value_col", "market_value"),
+            target_allocation=input_payload.get("target_allocation"),
+        )
+
+    if name == "monte_carlo_goal_simulator":
+        _require_permissions(skill, "read_reports", "read_memory")
+        from app.skills.python_finance.analytics.monte_carlo import simulate_goal_balance
+        return simulate_goal_balance(
+            starting_balance=float(input_payload.get("starting_balance", 0)),
+            monthly_contribution=float(input_payload.get("monthly_contribution", 0)),
+            months=int(input_payload.get("months", 12)),
+            expected_monthly_return=float(input_payload.get("expected_monthly_return", 0.0)),
+            monthly_volatility=float(input_payload.get("monthly_volatility", 0.0)),
+            simulations=int(input_payload.get("simulations", 1000)),
+            goal_amount=input_payload.get("goal_amount"),
+        )
+
+    if name == "chart_data_generator":
+        _require_permissions(skill, "read_reports")
+        from app.skills.python_finance.visualization.chart_data import generate_chart
+        return generate_chart(
+            chart_type=input_payload.get("chart_type", "line"),
+            title=input_payload.get("title", "Chart"),
+            rows=input_payload.get("rows") or [],
+            x_key=input_payload.get("x_key", "period"),
+            y_key=input_payload.get("y_key", "value"),
+            series=input_payload.get("series"),
+            label_key=input_payload.get("label_key", "label"),
+            value_key=input_payload.get("value_key", "value"),
+        )
+
+    if name == "finance_dataframe_profiler":
+        _require_permissions(skill, "read_transactions", "read_documents")
+        from app.skills.python_finance.analytics.profiling import profile_records
+        return profile_records(input_payload.get("records") or [])
+
+    # ── Accounting Pack ──────────────────────────────────────────────────────
+    if name == "journal_entry_validator":
+        _require_permissions(skill, "read_transactions")
+        from app.skills.accounting.core.validators import validate_journal_entry
+        return validate_journal_entry(input_payload.get("entry") or {})
+
+    if name == "trial_balance_generator":
+        _require_permissions(skill, "read_transactions", "read_reports")
+        from app.skills.accounting.ledger.trial_balance import generate_trial_balance
+        return generate_trial_balance(
+            input_payload.get("journal_lines") or [],
+            input_payload.get("accounts") or [],
+        )
+
+    if name == "income_statement_generator":
+        _require_permissions(skill, "read_transactions", "read_reports")
+        from app.skills.accounting.ledger.financial_statements import generate_income_statement
+        return generate_income_statement(
+            input_payload.get("journal_lines") or [],
+            input_payload.get("accounts") or [],
+        )
+
+    if name == "bank_reconciliation_assistant":
+        _require_permissions(skill, "read_transactions", "read_documents")
+        from app.skills.accounting.workflows.bank_reconciliation import reconcile_bank_to_ledger
+        return reconcile_bank_to_ledger(
+            input_payload.get("bank_transactions") or [],
+            input_payload.get("ledger_cash_entries") or [],
+            tolerance=float(input_payload.get("tolerance", 0.01)),
+        )
+
+    if name == "accounting_question_generator":
+        _require_permissions(skill, "read_transactions", "write_memory")
+        from app.skills.accounting.workflows.questions import generate_accounting_question
+        return generate_accounting_question(
+            input_payload.get("record") or {},
+            input_payload.get("reason_codes") or [],
+        )
+
+    if name == "fixed_asset_depreciation_assistant":
+        _require_permissions(skill, "read_transactions", "write_drafts")
+        from app.skills.accounting.workflows.depreciation import straight_line_depreciation
+        return straight_line_depreciation(
+            cost=float(input_payload.get("cost", 0)),
+            salvage_value=float(input_payload.get("salvage_value", 0)),
+            useful_life_months=int(input_payload.get("useful_life_months", 1)),
+        )
+
+    # ── Personal Finance Pack ────────────────────────────────────────────────
+    if name == "cashflow_and_savings_rate":
+        _require_permissions(skill, "read_transactions", "read_reports")
+        from app.skills.personal_finance.calculations.cashflow import calculate_personal_cashflow
+        return calculate_personal_cashflow(input_payload.get("transactions") or [])
+
+    if name == "budget_coach":
+        _require_permissions(skill, "read_transactions", "read_reports", "read_memory")
+        from app.skills.personal_finance.calculations.budget import (
+            calculate_budget_summary,
+            budget_variance,
+        )
+        income = float(input_payload.get("income", 0))
+        budget_lines = input_payload.get("budget_lines") or []
+        summary = calculate_budget_summary(income, budget_lines)
+        variance: dict[str, Any] = {}
+        if input_payload.get("actual_by_category"):
+            variance = budget_variance(budget_lines, input_payload["actual_by_category"])
+        return {**summary, "variance": variance}
+
+    if name == "room_for_error_checker":
+        _require_permissions(skill, "read_reports", "read_memory")
+        from app.skills.personal_finance.calculations.room_for_error import (
+            calculate_room_for_error_score,
+        )
+        return calculate_room_for_error_score(input_payload.get("profile") or {})
+
+    if name == "spending_habit_analyzer":
+        _require_permissions(skill, "read_transactions", "write_memory")
+        from app.skills.personal_finance.behavior.habits import analyze_spending_habits
+        return analyze_spending_habits(input_payload.get("transactions") or [])
+
+    if name == "subscription_review_assistant":
+        _require_permissions(skill, "read_transactions", "write_memory")
+        from app.skills.personal_finance.behavior.subscriptions import (
+            identify_subscription_candidates,
+        )
+        return identify_subscription_candidates(input_payload.get("transactions") or [])
+
+    if name == "lifestyle_creep_detector":
+        _require_permissions(skill, "read_reports", "write_memory")
+        from app.skills.personal_finance.behavior.lifestyle_creep import detect_lifestyle_creep
+        return detect_lifestyle_creep(input_payload.get("monthly") or [])
+
+    if name == "weekly_money_meeting_assistant":
+        _require_permissions(skill, "read_reports", "read_memory")
+        from app.skills.personal_finance.meetings.weekly_money_meeting import (
+            build_weekly_money_meeting_agenda,
+        )
+        return build_weekly_money_meeting_agenda(input_payload.get("context") or {})
+
     return {"status": "not_implemented"}

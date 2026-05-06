@@ -1,0 +1,1 @@
+{"name":"risk_metrics_calculator","version":"1.0.0","description":"Calculates historical risk metrics: VaR, drawdown, downside deviation, best/worst periods. Educational only.","mode":"both","permissions":["read_reports"],"triggers":["risk","VaR","drawdown","portfolio risk"],"tools_used":[],"requires_confirmation":false,"risk_level":"medium","entrypoint":"handler.py"}

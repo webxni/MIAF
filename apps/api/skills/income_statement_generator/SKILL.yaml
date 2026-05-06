@@ -1,0 +1,1 @@
+{"name":"income_statement_generator","version":"1.0.0","description":"Generates a deterministic income statement from posted ledger lines.","mode":"business","permissions":["read_transactions","read_reports"],"triggers":["income statement","profit and loss","P&L"],"tools_used":[],"requires_confirmation":false,"risk_level":"low","entrypoint":"handler.py"}

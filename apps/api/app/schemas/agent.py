@@ -110,6 +110,28 @@ class MemoryArgs(BaseModel):
     query: str = Field(min_length=1, max_length=500)
 
 
+class AnalyzeSpendingArgs(BaseModel):
+    as_of: date
+    limit: int = Field(default=90, ge=1, le=365)
+
+
+class CheckFinancialHealthArgs(BaseModel):
+    as_of: date
+
+
+class SimulateGoalArgs(BaseModel):
+    starting_balance: float = Field(default=0.0, ge=0)
+    monthly_contribution: float = Field(default=0.0, ge=0)
+    months: int = Field(default=12, ge=1, le=600)
+    expected_monthly_return: float = Field(default=0.0)
+    monthly_volatility: float = Field(default=0.0, ge=0)
+    goal_amount: float | None = None
+
+
+class ValidateJournalArgs(BaseModel):
+    lines: list[dict]
+
+
 class GenericToolResult(BaseModel):
     model_config = ConfigDict(extra="allow")
 

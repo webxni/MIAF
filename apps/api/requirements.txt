@@ -14,6 +14,9 @@ argon2-cffi==23.1.0
 itsdangerous==2.2.0
 PyYAML==6.0.2
 cryptography==43.0.3
+numpy>=1.26.0
+pandas>=2.2.0
+scipy>=1.13.0
 anthropic==0.39.0
 pytesseract==0.3.13
 Pillow==11.0.0

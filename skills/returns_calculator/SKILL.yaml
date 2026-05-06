@@ -1,0 +1,1 @@
+{"name":"returns_calculator","version":"1.0.0","description":"Calculates simple returns, log returns, cumulative return, and annualized metrics for investment observations.","mode":"personal","permissions":["read_reports"],"triggers":["returns","investment performance","portfolio return"],"tools_used":[],"requires_confirmation":false,"risk_level":"low","entrypoint":"handler.py"}

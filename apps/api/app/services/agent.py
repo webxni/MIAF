@@ -26,7 +26,9 @@ from app.schemas.agent import (
     AgentChatRequest,
     AgentChatResponse,
     AgentToolCallOut,
+    AnalyzeSpendingArgs,
     CashFlowArgs,
+    CheckFinancialHealthArgs,
     CreateInvoiceArgs,
     CreateJournalEntryDraftArgs,
     CreatePersonalExpenseArgs,
@@ -34,11 +36,13 @@ from app.schemas.agent import (
     MemoryArgs,
     PendingConfirmationOut,
     PostJournalEntryArgs,
+    SimulateGoalArgs,
     StatementArgs,
     SuggestEmergencyFundPlanArgs,
     SuggestInvestmentAllocationArgs,
     SummaryArgs,
     ToolConfirmationIn,
+    ValidateJournalArgs,
 )
 from app.schemas.business import CustomerCreate, InvoiceCreate
 from app.schemas.journal import JournalEntryCreate, JournalEntryOut, JournalLineIn
@@ -93,6 +97,10 @@ _TOOL_DESCRIPTIONS: dict[str, str] = {
     "explain_transaction": "Explain a transaction using deterministic accounting context.",
     "search_memory": "Search consented user memories for relevant notes.",
     "add_memory": "Create a consented memory note from user-provided text.",
+    "analyze_spending_habits": "Find top merchants and spending categories from recent personal transactions.",
+    "check_financial_health": "Score the user's personal margin of safety and identify cashflow risks.",
+    "simulate_financial_goal": "Run a Monte Carlo simulation for a savings or investment goal.",
+    "validate_journal_entry_structure": "Validate that a journal entry draft is balanced and structurally correct.",
 }
 
 
@@ -706,6 +714,80 @@ async def _tool_add_memory(ctx: ToolContext, args: MemoryArgs) -> dict[str, Any]
     return {"memory_id": str(memory.id), "title": memory.title, "memory_type": memory.memory_type.value}
 
 
+async def _tool_analyze_spending_habits(ctx: ToolContext, args: AnalyzeSpendingArgs) -> dict[str, Any]:
+    from app.skills.personal_finance.behavior.habits import analyze_spending_habits
+    from app.models import EntityMode
+
+    entities = await list_entities_for_user(ctx.db, user_id=ctx.me.id)
+    personal = next(
+        (e for e in entities if e.tenant_id == ctx.me.tenant_id and e.mode == EntityMode.personal),
+        None,
+    )
+    if personal is None:
+        return {"warnings": ["No personal entity found."]}
+
+    dashboard = await personal_dashboard(ctx.db, entity_id=personal.id, as_of=args.as_of)
+    transactions = [
+        {"amount": float(dashboard.monthly_expenses), "type": "expense", "category": "total_expenses"},
+        {"amount": float(dashboard.monthly_income), "type": "income", "category": "total_income"},
+    ]
+    result = analyze_spending_habits(transactions)
+    result["summary"] = {
+        "monthly_income": float(dashboard.monthly_income),
+        "monthly_expenses": float(dashboard.monthly_expenses),
+        "savings_rate": float(dashboard.savings_rate),
+    }
+    return result
+
+
+async def _tool_check_financial_health(ctx: ToolContext, args: CheckFinancialHealthArgs) -> dict[str, Any]:
+    from app.skills.personal_finance.calculations.room_for_error import calculate_room_for_error_score
+    from app.models import EntityMode
+
+    entities = await list_entities_for_user(ctx.db, user_id=ctx.me.id)
+    personal = next(
+        (e for e in entities if e.tenant_id == ctx.me.tenant_id and e.mode == EntityMode.personal),
+        None,
+    )
+    if personal is None:
+        return {"warnings": ["No personal entity found."]}
+
+    dashboard = await personal_dashboard(ctx.db, entity_id=personal.id, as_of=args.as_of)
+    income = float(dashboard.monthly_income)
+    expenses = float(dashboard.monthly_expenses)
+    profile = {
+        "emergency_fund_months": float(dashboard.emergency_fund_months),
+        "debt_to_income_ratio": expenses / income if income > 0 else 0.0,
+        "business_income_dependency": 0.0,
+        "tax_reserve_gap": 0.0,
+    }
+    score = calculate_room_for_error_score(profile)
+    return {
+        **score,
+        "monthly_income": income,
+        "monthly_expenses": expenses,
+        "savings_rate": float(dashboard.savings_rate),
+        "emergency_fund_months": float(dashboard.emergency_fund_months),
+    }
+
+
+async def _tool_simulate_financial_goal(ctx: ToolContext, args: SimulateGoalArgs) -> dict[str, Any]:
+    from app.skills.python_finance.analytics.monte_carlo import simulate_goal_balance
+    return simulate_goal_balance(
+        starting_balance=args.starting_balance,
+        monthly_contribution=args.monthly_contribution,
+        months=args.months,
+        expected_monthly_return=args.expected_monthly_return,
+        monthly_volatility=args.monthly_volatility,
+        goal_amount=args.goal_amount,
+    )
+
+
+async def _tool_validate_journal_entry_structure(ctx: ToolContext, args: ValidateJournalArgs) -> dict[str, Any]:
+    from app.skills.accounting.core.validators import validate_journal_entry
+    return validate_journal_entry({"lines": args.lines})
+
+
 def build_tool_registry() -> ToolRegistry:
     registry = ToolRegistry()
     registry.register("create_journal_entry_draft", CreateJournalEntryDraftArgs, _tool_create_journal_entry_draft)
@@ -730,6 +812,10 @@ def build_tool_registry() -> ToolRegistry:
     registry.register("explain_transaction", ExplainTransactionArgs, _tool_explain_transaction)
     registry.register("search_memory", MemoryArgs, _tool_search_memory)
     registry.register("add_memory", MemoryArgs, _tool_add_memory)
+    registry.register("analyze_spending_habits", AnalyzeSpendingArgs, _tool_analyze_spending_habits)
+    registry.register("check_financial_health", CheckFinancialHealthArgs, _tool_check_financial_health)
+    registry.register("simulate_financial_goal", SimulateGoalArgs, _tool_simulate_financial_goal)
+    registry.register("validate_journal_entry_structure", ValidateJournalArgs, _tool_validate_journal_entry_structure)
     return registry
 
 

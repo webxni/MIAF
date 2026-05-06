@@ -1,0 +1,1 @@
+{"name":"weekly_money_meeting_assistant","version":"1.0.0","description":"Creates a weekly money review agenda tailored to the user's active financial context.","mode":"personal","permissions":["read_reports","read_memory"],"triggers":["money meeting","weekly review","financial checkup"],"tools_used":[],"requires_confirmation":false,"risk_level":"low","entrypoint":"handler.py"}
