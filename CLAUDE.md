@@ -216,7 +216,7 @@ Phase 3 status:
 Phase 4 status:
 * Ingestion models live in `app/models/ingestion.py`; service logic lives in `app/services/ingestion.py`; API lives in `app/api/documents.py`.
 * File storage currently uses existing `attachments` as the persisted file record; the phase-specific metadata tables are `import_batches`, `document_extractions`, and `extraction_candidates`.
-* Receipt extraction is currently deterministic text parsing, not full binary OCR. Tests use text receipts; future work can plug Tesseract into the same extraction model.
+* Receipt extraction now uses Tesseract OCR for supported `image/*` uploads, keeps deterministic text parsing as the fallback path, and reserves PDFs as `needs_review` with `pdf_not_supported_yet` for future scope.
 * Candidate approval creates a draft journal entry linked back to the `source_transaction` and updates the attachment to keep the original document attached.
 * CSV import creates `source_transactions` with `kind="csv_row"`, auto-drafts balanced outflow journal entries linked back through `source_transaction_id`, exposes those review items at `/documents/pending-drafts`, and marks batch counts in `import_batches`. Positive CSV inflows currently stay as source rows only for manual review.
 * Signed download URLs are generated through MinIO presigned URLs; audit file access through the document routes.

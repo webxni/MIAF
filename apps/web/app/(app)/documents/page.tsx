@@ -20,7 +20,10 @@ import {
 
 type UploadResult = {
   attachment: { filename: string; id: string };
-  extraction?: { confidence_score?: string | null; extracted_data?: Record<string, { value: string | null; confidence: string }> };
+  extraction?: {
+    confidence_score?: string | null;
+    extracted_data?: Record<string, { value: string | null; confidence: string } | string>;
+  };
   batch?: { rows_imported: number; rows_total: number };
 };
 
@@ -145,7 +148,12 @@ export default function DocumentsPage() {
         throw new Error("error" in body ? body.error?.message ?? "Upload failed" : "Upload failed");
       }
       if (kind === "receipts" && "attachment" in body) {
-        setMessage(`Receipt ${body.attachment.filename} uploaded and parsed.`);
+        const reason = body.extraction?.extracted_data?.reason;
+        if (reason === "pdf_not_supported_yet") {
+          setMessage(`Receipt ${body.attachment.filename} uploaded and queued for review. PDF OCR is not supported yet.`);
+        } else {
+          setMessage(`Receipt ${body.attachment.filename} uploaded and parsed.`);
+        }
       } else if (kind === "csv-imports" && "batch" in body) {
         setMessage(`Imported ${body.batch?.rows_imported ?? 0} of ${body.batch?.rows_total ?? 0} rows.`);
         await loadPendingDrafts();
@@ -254,7 +262,7 @@ export default function DocumentsPage() {
       <div className="grid gap-6 xl:grid-cols-2">
         <SectionCard title="Receipt upload" description="Uploads into the Phase 4 document ingestion pipeline.">
           <label className="inline-flex cursor-pointer rounded-xl bg-[var(--accent)] px-4 py-3 font-semibold text-[var(--accent-ink)]">
-            <input type="file" accept=".txt,.pdf,.png,.jpg,.jpeg" className="hidden" onChange={onReceiptChange} disabled={busy} />
+            <input type="file" accept=".txt,.pdf,.png,.jpg,.jpeg,.webp" className="hidden" onChange={onReceiptChange} disabled={busy} />
             {busy ? "Uploading…" : "Upload receipt"}
           </label>
         </SectionCard>

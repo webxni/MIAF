@@ -39,15 +39,19 @@ from app.config import get_settings
 from app.services.audit import write_audit
 from app.services.classifier import build_memory_lookup, classify_source_transaction
 from app.services.journal import create_draft
+from app.services import ocr
 from app.storage import ensure_bucket, minio_client
 
 MAX_FILE_BYTES = 10 * 1024 * 1024
 ALLOWED_UPLOAD_TYPES = {
     "text/plain",
     "text/csv",
+    "application/octet-stream",
     "application/pdf",
     "image/png",
     "image/jpeg",
+    "image/jpg",
+    "image/webp",
 }
 
 
@@ -88,6 +92,41 @@ def _parse_datetime(value: str | None) -> datetime | None:
         except ValueError:
             continue
     return None
+
+
+def _sanitize_extracted_text(text: str) -> str:
+    cleaned = text.replace("\r\n", "\n").replace("\r", "\n").replace("\x00", "")
+    cleaned = "".join(char for char in cleaned if char in {"\n", "\t"} or ord(char) >= 32)
+    return cleaned[:100_000]
+
+
+def _clamp_decimal(value: Decimal, *, lower: Decimal = Decimal("0.00"), upper: Decimal = Decimal("1.00")) -> Decimal:
+    return min(max(value, lower), upper)
+
+
+def _empty_receipt_fields() -> dict:
+    return {
+        "merchant": {"value": None, "confidence": "0.0000"},
+        "date": {"value": None, "confidence": "0.0000"},
+        "total": {"value": None, "confidence": "0.0000"},
+    }
+
+
+def _apply_ocr_confidence(extracted_data: dict, ocr_confidence: float) -> tuple[dict, Decimal]:
+    scale = _clamp_decimal(Decimal(str(ocr_confidence)) / Decimal("100"))
+    adjusted: dict[str, dict[str, str | None]] = {}
+    total_confidence = Decimal("0.00")
+
+    for field_name in ("merchant", "date", "total"):
+        raw_field = extracted_data[field_name]
+        field_confidence = _clamp_decimal(Decimal(str(raw_field["confidence"])) * scale).quantize(Decimal("0.0001"))
+        adjusted[field_name] = {
+            "value": raw_field["value"],
+            "confidence": str(field_confidence),
+        }
+        total_confidence += field_confidence
+
+    return adjusted, (total_confidence / Decimal("3")).quantize(Decimal("0.0001"))
 
 
 def extract_receipt_fields(text: str) -> tuple[dict, Decimal]:
@@ -210,8 +249,25 @@ async def ingest_receipt(
     content_type: str,
     data: bytes,
 ) -> ReceiptIngestionOut:
-    extracted_text = data.decode("utf-8", errors="ignore")
-    extracted_data, confidence = extract_receipt_fields(extracted_text)
+    """Ingest receipts via PDF placeholder review, image OCR, or text decode fallback."""
+    candidate = None
+
+    if content_type == "application/pdf":
+        extracted_text = ""
+        extracted_data = {
+            **_empty_receipt_fields(),
+            "reason": "pdf_not_supported_yet",
+        }
+        confidence = Decimal("0.0000")
+    elif ocr.is_image_content_type(content_type):
+        raw_text, ocr_confidence = ocr.extract_text_from_image(data)
+        extracted_text = _sanitize_extracted_text(raw_text)
+        extracted_data, confidence = extract_receipt_fields(extracted_text)
+        extracted_data, confidence = _apply_ocr_confidence(extracted_data, ocr_confidence)
+    else:
+        extracted_text = _sanitize_extracted_text(data.decode("utf-8", errors="ignore"))
+        extracted_data, confidence = extract_receipt_fields(extracted_text)
+
     merchant = extracted_data["merchant"]["value"]
     amount_value = extracted_data["total"]["value"]
     date_value = extracted_data["date"]["value"]
@@ -254,7 +310,11 @@ async def ingest_receipt(
         attachment_id=attachment.id,
         source_transaction_id=source_tx.id,
         extraction_kind="receipt",
-        status=ExtractionStatus.extracted if confidence >= Decimal("0.80") else ExtractionStatus.needs_review,
+        status=(
+            ExtractionStatus.needs_review
+            if content_type == "application/pdf" or extracted_text == ""
+            else ExtractionStatus.extracted if confidence >= Decimal("0.80") else ExtractionStatus.needs_review
+        ),
         extracted_text=extracted_text,
         extracted_data=extracted_data,
         confidence_score=confidence,
@@ -263,34 +323,35 @@ async def ingest_receipt(
     db.add(extraction)
     await db.flush()
 
-    expense_account = await _default_expense_account(db, entity_id, merchant)
-    cash_account = (
-        await db.execute(select(Account).where(Account.entity_id == entity_id, Account.code == "1110"))
-    ).scalar_one_or_none()
-    if cash_account is None:
-        cash_account = expense_account
-    suggestion = {
-        "entry_date": occurred_at.date().isoformat() if occurred_at else utcnow().date().isoformat(),
-        "memo": merchant or filename,
-        "lines": [
-            {"account_id": str(expense_account.id), "debit": str(amount or ZERO), "credit": "0.00"},
-            {"account_id": str(cash_account.id), "debit": "0.00", "credit": str(amount or ZERO)},
-        ],
-    }
-    candidate = ExtractionCandidate(
-        tenant_id=tenant_id,
-        entity_id=entity_id,
-        document_extraction_id=extraction.id,
-        source_transaction_id=source_tx.id,
-        suggested_account_id=expense_account.id,
-        suggested_memo=merchant or filename,
-        suggested_entry=suggestion,
-        confidence_score=confidence,
-        status=CandidateStatus.suggested,
-        rationale="deterministic receipt heuristic",
-    )
-    db.add(candidate)
-    await db.flush()
+    if content_type != "application/pdf":
+        expense_account = await _default_expense_account(db, entity_id, merchant)
+        cash_account = (
+            await db.execute(select(Account).where(Account.entity_id == entity_id, Account.code == "1110"))
+        ).scalar_one_or_none()
+        if cash_account is None:
+            cash_account = expense_account
+        suggestion = {
+            "entry_date": occurred_at.date().isoformat() if occurred_at else utcnow().date().isoformat(),
+            "memo": merchant or filename,
+            "lines": [
+                {"account_id": str(expense_account.id), "debit": str(amount or ZERO), "credit": "0.00"},
+                {"account_id": str(cash_account.id), "debit": "0.00", "credit": str(amount or ZERO)},
+            ],
+        }
+        candidate = ExtractionCandidate(
+            tenant_id=tenant_id,
+            entity_id=entity_id,
+            document_extraction_id=extraction.id,
+            source_transaction_id=source_tx.id,
+            suggested_account_id=expense_account.id,
+            suggested_memo=merchant or filename,
+            suggested_entry=suggestion,
+            confidence_score=confidence,
+            status=CandidateStatus.suggested,
+            rationale="deterministic receipt heuristic",
+        )
+        db.add(candidate)
+        await db.flush()
 
     return ReceiptIngestionOut(
         attachment=attachment,

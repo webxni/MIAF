@@ -69,7 +69,7 @@ class ExtractionCandidateOut(BaseModel):
 class ReceiptIngestionOut(BaseModel):
     attachment: AttachmentOut
     extraction: DocumentExtractionOut
-    candidate: ExtractionCandidateOut
+    candidate: ExtractionCandidateOut | None
 
 
 class CandidateApprovalIn(BaseModel):
