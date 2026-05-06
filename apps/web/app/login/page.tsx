@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import Link from "next/link";
 
 import { login } from "../_lib/api";
 
@@ -9,13 +10,19 @@ export default function LoginPage() {
   const [email, setEmail] = useState("owner@example.com");
   const [password, setPassword] = useState("change-me-on-first-login");
   const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const value = new URLSearchParams(window.location.search).get("next");
-    if (value) {
-      setNext(value);
+    const params = new URLSearchParams(window.location.search);
+    const nextValue = params.get("next");
+    const messageValue = params.get("message");
+    if (nextValue) {
+      setNext(nextValue);
+    }
+    if (messageValue) {
+      setMessage(messageValue);
     }
   }, []);
 
@@ -68,9 +75,15 @@ export default function LoginPage() {
             <p className="text-xs uppercase tracking-[0.3em] text-[var(--accent)]">Login</p>
             <h2 className="mt-3 text-3xl font-semibold tracking-tight">Open the workspace</h2>
             <p className="mt-2 text-sm text-[var(--muted)]">
-              Default dev credentials are prefilled. Replace them in your environment for real use.
+              Seeded dev credentials are prefilled when the demo seed is enabled.
             </p>
           </div>
+
+          {message ? (
+            <div className="mt-6 rounded-xl border border-[var(--line)] bg-[var(--surface)] px-4 py-3 text-sm text-[var(--ink)]">
+              {message}
+            </div>
+          ) : null}
 
           <label className="mt-6 block text-sm font-medium">
             Email
@@ -106,6 +119,13 @@ export default function LoginPage() {
           >
             {loading ? "Signing in…" : "Sign in"}
           </button>
+
+          <p className="mt-4 text-center text-sm text-[var(--muted)]">
+            First time?{" "}
+            <Link href="/onboarding" className="font-medium text-[var(--accent)] hover:underline">
+              Create your account
+            </Link>
+          </p>
         </form>
       </section>
     </main>

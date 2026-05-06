@@ -10,6 +10,12 @@ class LoginRequest(BaseModel):
     password: str = Field(min_length=1, max_length=1000)
 
 
+class RegisterOwnerRequest(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=12, max_length=1000)
+    name: str = Field(min_length=1, max_length=100)
+
+
 class UserOut(BaseModel):
     id: uuid.UUID
     tenant_id: uuid.UUID

@@ -24,14 +24,18 @@ log = logging.getLogger("seed")
 
 
 SEED_TENANT_NAME = "FinClaw Demo Tenant"
-# `.local` and `.test` are special-use TLDs rejected by email-validator;
-# we use `example.com` (RFC 2606 reserved for docs) as a safe default placeholder.
-SEED_USER_EMAIL = os.getenv("SEED_USER_EMAIL", "owner@example.com")
-SEED_USER_NAME = os.getenv("SEED_USER_NAME", "Demo Owner")
-SEED_USER_PASSWORD = os.getenv("SEED_USER_PASSWORD", "change-me-on-first-login")
-
+DEFAULT_SEED_USER_NAME = "Demo Owner"
+DEFAULT_SEED_USER_PASSWORD = "change-me-on-first-login"
 SEED_PERSONAL_NAME = "Personal"
 SEED_BUSINESS_NAME = "My Business"
+
+
+def _get_seed_config() -> tuple[str | None, str, str]:
+    return (
+        os.getenv("SEED_USER_EMAIL"),
+        os.getenv("SEED_USER_NAME", DEFAULT_SEED_USER_NAME),
+        os.getenv("SEED_USER_PASSWORD", DEFAULT_SEED_USER_PASSWORD),
+    )
 
 
 async def _get_or_create_tenant(db: AsyncSession) -> Tenant:
@@ -47,17 +51,24 @@ async def _get_or_create_tenant(db: AsyncSession) -> Tenant:
     return t
 
 
-async def _get_or_create_user(db: AsyncSession, tenant: Tenant) -> User:
+async def _get_or_create_user(
+    db: AsyncSession,
+    tenant: Tenant,
+    *,
+    email: str,
+    name: str,
+    password: str,
+) -> User:
     existing = (
-        await db.execute(select(User).where(User.email == SEED_USER_EMAIL))
+        await db.execute(select(User).where(User.email == email))
     ).scalar_one_or_none()
     if existing:
         return existing
     u = User(
         tenant_id=tenant.id,
-        email=SEED_USER_EMAIL,
-        name=SEED_USER_NAME,
-        password_hash=hash_password(SEED_USER_PASSWORD),
+        email=email,
+        name=name,
+        password_hash=hash_password(password),
     )
     db.add(u)
     await db.flush()
@@ -87,7 +98,7 @@ async def _get_or_create_entity(
     return e
 
 
-async def _seed_coa(db: AsyncSession, entity: Entity) -> int:
+async def create_default_chart_of_accounts(db: AsyncSession, entity: Entity) -> int:
     nodes = coa_for_mode(entity.mode)
 
     # Index existing accounts by code for idempotency.
@@ -129,16 +140,27 @@ async def _seed_coa(db: AsyncSession, entity: Entity) -> int:
 
 
 async def run_seed(db: AsyncSession) -> dict:
+    seed_email, seed_name, seed_password = _get_seed_config()
+    if not seed_email:
+        log.info("seed: skipping demo workspace creation because SEED_USER_EMAIL is not set")
+        return {"skipped": True}
+
     tenant = await _get_or_create_tenant(db)
-    user = await _get_or_create_user(db, tenant)
+    user = await _get_or_create_user(
+        db,
+        tenant,
+        email=seed_email,
+        name=seed_name,
+        password=seed_password,
+    )
     personal = await _get_or_create_entity(
         db, tenant, user, SEED_PERSONAL_NAME, EntityMode.personal
     )
     business = await _get_or_create_entity(
         db, tenant, user, SEED_BUSINESS_NAME, EntityMode.business
     )
-    personal_created = await _seed_coa(db, personal)
-    business_created = await _seed_coa(db, business)
+    personal_created = await create_default_chart_of_accounts(db, personal)
+    business_created = await create_default_chart_of_accounts(db, business)
     return {
         "tenant_id": str(tenant.id),
         "user_id": str(user.id),

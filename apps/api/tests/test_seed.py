@@ -65,9 +65,12 @@ async def test_seed_creates_default_charts_of_accounts(seeded, db):
         assert set(types) == set(AccountType)
 
 
-async def test_seed_is_idempotent(db):
+async def test_seed_is_idempotent(db, monkeypatch: pytest.MonkeyPatch):
     from app.services.seed import run_seed
 
+    monkeypatch.setenv("SEED_USER_EMAIL", "owner@example.com")
+    monkeypatch.setenv("SEED_USER_NAME", "Demo Owner")
+    monkeypatch.setenv("SEED_USER_PASSWORD", "change-me-on-first-login")
     first = await run_seed(db)
     await db.flush()
     second = await run_seed(db)

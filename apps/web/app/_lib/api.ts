@@ -8,6 +8,18 @@ export type ApiError = {
   };
 };
 
+export class ApiRequestError extends Error {
+  status: number;
+  code?: string;
+
+  constructor(message: string, status: number, code?: string) {
+    super(message);
+    this.name = "ApiRequestError";
+    this.status = status;
+    this.code = code;
+  }
+}
+
 export type User = {
   id: string;
   tenant_id: string;
@@ -40,12 +52,16 @@ export type SkillManifest = {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "/api";
 
-async function parseError(res: Response): Promise<string> {
+async function parseError(res: Response): Promise<ApiRequestError> {
   try {
     const body = (await res.json()) as ApiError;
-    return body.error?.message ?? `Request failed with ${res.status}`;
+    return new ApiRequestError(
+      body.error?.message ?? `Request failed with ${res.status}`,
+      res.status,
+      body.error?.code,
+    );
   } catch {
-    return `Request failed with ${res.status}`;
+    return new ApiRequestError(`Request failed with ${res.status}`, res.status);
   }
 }
 
@@ -60,7 +76,7 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
     cache: "no-store",
   });
   if (!res.ok) {
-    throw new Error(await parseError(res));
+    throw await parseError(res);
   }
   if (res.status === 204) {
     return undefined as T;
@@ -72,6 +88,13 @@ export async function login(email: string, password: string): Promise<User> {
   return apiFetch<User>("/auth/login", {
     method: "POST",
     body: JSON.stringify({ email, password }),
+  });
+}
+
+export async function registerOwner(name: string, email: string, password: string): Promise<User> {
+  return apiFetch<User>("/auth/register-owner", {
+    method: "POST",
+    body: JSON.stringify({ name, email, password }),
   });
 }
 

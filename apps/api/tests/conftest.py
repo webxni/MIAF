@@ -103,9 +103,12 @@ async def db(test_db_url: str) -> AsyncIterator[AsyncSession]:
 
 
 @pytest_asyncio.fixture
-async def seeded(db: AsyncSession) -> dict:
+async def seeded(db: AsyncSession, monkeypatch: pytest.MonkeyPatch) -> dict:
     from app.services.seed import run_seed
 
+    monkeypatch.setenv("SEED_USER_EMAIL", "owner@example.com")
+    monkeypatch.setenv("SEED_USER_NAME", "Demo Owner")
+    monkeypatch.setenv("SEED_USER_PASSWORD", "change-me-on-first-login")
     result = await run_seed(db)
     await db.flush()
     return result
