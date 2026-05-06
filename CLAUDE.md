@@ -20,6 +20,8 @@ This repo is active and already has Phases 0, 1, 2, 3, 4, an initial Phase 5 web
 - Phase 11: reporting/analysis slice now extends the personal and business report services with debt payoff plans, emergency fund plans, investment allocation summaries, business dependency reports, revenue-by-customer, expenses-by-vendor, gross margin, runway, tax reserve reports, and deterministic explanation endpoints that cite internal facts; tests cover both personal and business analytic reports.
 - Phase 12: security-hardening slice now adds explicit CORS allowlist config, login-attempt persistence, login throttling, successful/failed login attempt recording, failed-login audit coverage for known users, first-run owner registration throttled on the same email/IP gate before account creation, an owner/admin-gated read-only audit-log endpoint with tenant-scoped filtering and pagination, DB-level UPDATE/DELETE on `audit_logs` REVOKEd from the application role (migration `0011`), and a production deploy guide at `docs/DEPLOY.md`; `Caddyfile.prod` uses `CADDY_ADMIN_EMAIL` for ACME and `infra/docker/postgres/init.sql` provisions a non-super `miaf_app` role.
 - Phase 13: a composed end-to-end backend demo flow now exists in pytest, covering login, CSV import, receipt ingestion and approval, customer invoice posting and payment, vendor bill posting, owner-draw linkage across business and personal entities, report refresh, heartbeat alerting, weekly reporting, and audit-log presence.
+- Wave 5.3: agent real tool implementations (create_bill, create_budget, create_goal, create_debt_plan, record_invoice_payment, record_bill_payment), memory auto-injection into LLM context, Gemini fallback disclaimer, auth security (PUT /auth/password, POST /auth/revoke-all-sessions), MiniChart inline-SVG frontend component, skill run log table, SkillPlanner INTENT_PLANS expanded for budget/goal/debt/bill tools.
+- Wave 5.4: export auditing (all report GET endpoints now write action="report_viewed" audit rows), CSV export endpoints (GET /ledger/export.csv, /trial-balance/export.csv, /business/reports/balance-sheet/export.csv, /income-statement/export.csv, /ar-aging/export.csv, /ap-aging/export.csv, /revenue-by-customer/export.csv, /expenses-by-vendor/export.csv; /personal/reports/net-worth/export.csv), Redis-backed per-IP rate limiting middleware on auth+agent hot paths (IPRateLimitMiddleware), configurable via IP_RATE_LIMIT_WINDOW_SECONDS / IP_RATE_LIMIT_REQUESTS env vars.
 
 Treat `MIAF.md` as the product contract and this file as the current repo-state memo. Do not assume the repo is empty.
 
@@ -119,7 +121,9 @@ API surface (Phases 1-6 backend):
 * `GET/POST/PATCH/DELETE /api/entities/{id}/accounts[/{id}]`.
 * `GET/POST/PATCH/DELETE /api/entities/{id}/journal-entries[/{id}]` plus `/post` and `/void`.
 * `GET /api/entities/{id}/ledger?account_id=...&date_from=...&date_to=...`.
+* `GET /api/entities/{id}/ledger/export.csv?account_id=...`.
 * `GET /api/entities/{id}/trial-balance?as_of=...`.
+* `GET /api/entities/{id}/trial-balance/export.csv?as_of=...`.
 * `GET /api/entities/{id}/personal/dashboard?as_of=...`.
 * `GET/POST/PATCH/DELETE /api/entities/{id}/personal/budgets[/{budget_id}]`.
 * `GET /api/entities/{id}/personal/budgets/{budget_id}/actuals`.
@@ -135,9 +139,13 @@ API surface (Phases 1-6 backend):
 * `GET/POST/PATCH /api/entities/{id}/business/bills[/{bill_id}]` plus `/post`.
 * `GET/POST /api/entities/{id}/business/payments`.
 * `GET /api/entities/{id}/business/reports/ar-aging?as_of=...`.
+* `GET /api/entities/{id}/business/reports/ar-aging/export.csv?as_of=...`.
 * `GET /api/entities/{id}/business/reports/ap-aging?as_of=...`.
+* `GET /api/entities/{id}/business/reports/ap-aging/export.csv?as_of=...`.
 * `GET /api/entities/{id}/business/reports/balance-sheet?as_of=...`.
+* `GET /api/entities/{id}/business/reports/balance-sheet/export.csv?as_of=...`.
 * `GET /api/entities/{id}/business/reports/income-statement?date_from=...&date_to=...`.
+* `GET /api/entities/{id}/business/reports/income-statement/export.csv?date_from=...&date_to=...`.
 * `GET /api/entities/{id}/business/reports/cash-flow?date_from=...&date_to=...`.
 * `GET /api/entities/{id}/business/reports/closing-checklist?as_of=...`.
 * `GET/POST /api/entities/{id}/business/tax-rates`.
@@ -169,6 +177,7 @@ API surface (Phases 1-6 backend):
 * `GET /api/telegram/messages`.
 * `POST /api/telegram/webhook`.
 * `GET /api/entities/{id}/personal/reports/net-worth?as_of=...`.
+* `GET /api/entities/{id}/personal/reports/net-worth/export.csv?as_of=...`.
 * `GET /api/entities/{id}/personal/reports/monthly-cash-flow?as_of=...`.
 * `GET /api/entities/{id}/personal/reports/debt-payoff-plan?as_of=...`.
 * `GET /api/entities/{id}/personal/reports/emergency-fund-plan?as_of=...`.
@@ -177,7 +186,9 @@ API surface (Phases 1-6 backend):
 * `GET /api/entities/{id}/personal/reports/net-worth-change-explanation?date_from=...&date_to=...`.
 * `GET /api/entities/{id}/personal/reports/spending-trends-explanation?as_of=...`.
 * `GET /api/entities/{id}/business/reports/revenue-by-customer?date_from=...&date_to=...`.
+* `GET /api/entities/{id}/business/reports/revenue-by-customer/export.csv?date_from=...&date_to=...`.
 * `GET /api/entities/{id}/business/reports/expenses-by-vendor?date_from=...&date_to=...`.
+* `GET /api/entities/{id}/business/reports/expenses-by-vendor/export.csv?date_from=...&date_to=...`.
 * `GET /api/entities/{id}/business/reports/gross-margin?date_from=...&date_to=...`.
 * `GET /api/entities/{id}/business/reports/runway?as_of=...`.
 * `GET /api/entities/{id}/business/reports/tax-reserve?as_of=...`.

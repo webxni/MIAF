@@ -21,17 +21,22 @@ export function StatCard({
 export function SectionCard({
   title,
   description,
+  action,
   children,
 }: {
   title: string;
   description?: string;
+  action?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
     <section className="rounded-3xl border border-[var(--line)] bg-[var(--panel)] p-5">
-      <div className="mb-4">
-        <h3 className="text-lg font-semibold">{title}</h3>
-        {description ? <p className="mt-1 text-sm text-[var(--muted)]">{description}</p> : null}
+      <div className="mb-4 flex items-start justify-between gap-4">
+        <div>
+          <h3 className="text-lg font-semibold">{title}</h3>
+          {description ? <p className="mt-1 text-sm text-[var(--muted)]">{description}</p> : null}
+        </div>
+        {action ? <div className="shrink-0 pt-1">{action}</div> : null}
       </div>
       {children}
     </section>

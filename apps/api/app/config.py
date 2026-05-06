@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     agent_rate_limit_window_seconds: int = Field(default=60, alias="AGENT_RATE_LIMIT_WINDOW_SECONDS")
     agent_rate_limit_attempts: int = Field(default=30, alias="AGENT_RATE_LIMIT_ATTEMPTS")
 
+    # Per-IP rate limiting (applied via middleware to auth + agent hot paths)
+    ip_rate_limit_window_seconds: int = Field(default=60, alias="IP_RATE_LIMIT_WINDOW_SECONDS")
+    ip_rate_limit_requests: int = Field(default=120, alias="IP_RATE_LIMIT_REQUESTS")
+
     # Tailscale
     tailscale_binary_path: str = Field(default="/usr/bin/tailscale", alias="TAILSCALE_BINARY_PATH")
     tailscale_command_timeout: int = Field(default=10, alias="TAILSCALE_COMMAND_TIMEOUT")

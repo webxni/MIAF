@@ -19,6 +19,8 @@ import {
   type StatementRow,
 } from "../../../_lib/api";
 
+const API = process.env.NEXT_PUBLIC_API_URL ?? "/api";
+
 function StatementBlock({ title, rows, total }: { title: string; rows: StatementRow[]; total?: string }) {
   return (
     <div className="space-y-1">
@@ -113,6 +115,7 @@ export default function BusinessReportsPage() {
         <SectionCard
           title="Balance sheet"
           description={balance ? `As of ${balance.as_of}` : undefined}
+          action={entity ? <a href={`${API}/entities/${entity.id}/business/reports/balance-sheet/export.csv?as_of=${todayIso()}`} className="text-xs text-[var(--accent)] hover:underline" download>Download CSV</a> : undefined}
         >
           {!entity ? (
             <p className="text-sm text-[var(--muted)]">No business entity available.</p>
@@ -133,6 +136,7 @@ export default function BusinessReportsPage() {
         <SectionCard
           title="Income statement"
           description={income ? `${income.date_from} → ${income.date_to}` : undefined}
+          action={entity ? <a href={`${API}/entities/${entity.id}/business/reports/income-statement/export.csv?date_from=${monthStartIso(todayIso())}&date_to=${todayIso()}`} className="text-xs text-[var(--accent)] hover:underline" download>Download CSV</a> : undefined}
         >
           {!income ? (
             <p className="text-sm text-[var(--muted)]">Loading…</p>
@@ -150,7 +154,7 @@ export default function BusinessReportsPage() {
       </div>
 
       <div className="grid gap-6 xl:grid-cols-2">
-        <SectionCard title="AR aging" description={arAging ? `As of ${arAging.as_of}` : undefined}>
+        <SectionCard title="AR aging" description={arAging ? `As of ${arAging.as_of}` : undefined} action={entity ? <a href={`${API}/entities/${entity.id}/business/reports/ar-aging/export.csv?as_of=${todayIso()}`} className="text-xs text-[var(--accent)] hover:underline" download>Download CSV</a> : undefined}>
           {!arAging ? (
             <p className="text-sm text-[var(--muted)]">Loading…</p>
           ) : arAging.rows.length === 0 ? (
@@ -180,7 +184,7 @@ export default function BusinessReportsPage() {
           )}
         </SectionCard>
 
-        <SectionCard title="AP aging" description={apAging ? `As of ${apAging.as_of}` : undefined}>
+        <SectionCard title="AP aging" description={apAging ? `As of ${apAging.as_of}` : undefined} action={entity ? <a href={`${API}/entities/${entity.id}/business/reports/ap-aging/export.csv?as_of=${todayIso()}`} className="text-xs text-[var(--accent)] hover:underline" download>Download CSV</a> : undefined}>
           {!apAging ? (
             <p className="text-sm text-[var(--muted)]">Loading…</p>
           ) : apAging.rows.length === 0 ? (

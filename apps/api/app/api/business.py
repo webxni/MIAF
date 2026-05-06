@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import csv
+import io
 import uuid
 from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Response, status
+from starlette.responses import StreamingResponse
 
 from app.api.deps import DB, CurrentUserDep, RequestCtx, require_reader, require_writer
 from app.models import Entity, EntityMember
@@ -98,6 +101,19 @@ def _obj_dict(obj, fields: list[str]) -> dict:
         value = getattr(obj, field)
         out[field] = value.isoformat() if hasattr(value, "isoformat") else (str(value) if value is not None else None)
     return out
+
+
+def _make_csv(headers: list[str], rows: list[list]) -> StreamingResponse:
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(headers)
+    writer.writerows(rows)
+    buf.seek(0)
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment"},
+    )
 
 
 @router.get("/dashboard", response_model=BusinessDashboardOut)
@@ -351,98 +367,264 @@ async def create_payment_endpoint(
 
 @router.get("/reports/ar-aging", response_model=AgingReportOut)
 async def ar_aging_endpoint(
-    entity_id: uuid.UUID, db: DB, scoped: Annotated[tuple[Entity, EntityMember], Depends(require_reader)], as_of: date = Query(default_factory=date.today)
+    entity_id: uuid.UUID,
+    db: DB,
+    me: CurrentUserDep,
+    ctx: RequestCtx,
+    scoped: Annotated[tuple[Entity, EntityMember], Depends(require_reader)],
+    as_of: date = Query(default_factory=date.today),
 ) -> AgingReportOut:
-    return await ar_aging(db, entity_id=entity_id, as_of=as_of)
+    result = await ar_aging(db, entity_id=entity_id, as_of=as_of)
+    await write_audit(db, tenant_id=me.tenant_id, user_id=me.id, entity_id=entity_id, action="report_viewed", object_type="ar_aging", object_id=None, after={"as_of": str(as_of)}, ip=ctx.ip, user_agent=ctx.user_agent)
+    return result
+
+
+@router.get("/reports/ar-aging/export.csv")
+async def ar_aging_csv(
+    entity_id: uuid.UUID,
+    db: DB,
+    me: CurrentUserDep,
+    ctx: RequestCtx,
+    scoped: Annotated[tuple[Entity, EntityMember], Depends(require_reader)],
+    as_of: date = Query(default_factory=date.today),
+) -> StreamingResponse:
+    result = await ar_aging(db, entity_id=entity_id, as_of=as_of)
+    await write_audit(db, tenant_id=me.tenant_id, user_id=me.id, entity_id=entity_id, action="export", object_type="ar_aging", object_id=None, after={"format": "csv", "as_of": str(as_of)}, ip=ctx.ip, user_agent=ctx.user_agent)
+    headers = ["Customer", "Invoice #", "Due Date", "Current", "1–30 Days", "31–60 Days", "61–90 Days", "90+ Days", "Balance Due"]
+    rows = [[r.counterparty_name, r.number, str(r.due_date), str(r.current), str(r.days_1_30), str(r.days_31_60), str(r.days_61_90), str(r.days_91_plus), str(r.balance_due)] for r in result.rows]
+    return _make_csv(headers, rows)
 
 
 @router.get("/reports/ap-aging", response_model=AgingReportOut)
 async def ap_aging_endpoint(
-    entity_id: uuid.UUID, db: DB, scoped: Annotated[tuple[Entity, EntityMember], Depends(require_reader)], as_of: date = Query(default_factory=date.today)
+    entity_id: uuid.UUID,
+    db: DB,
+    me: CurrentUserDep,
+    ctx: RequestCtx,
+    scoped: Annotated[tuple[Entity, EntityMember], Depends(require_reader)],
+    as_of: date = Query(default_factory=date.today),
 ) -> AgingReportOut:
-    return await ap_aging(db, entity_id=entity_id, as_of=as_of)
+    result = await ap_aging(db, entity_id=entity_id, as_of=as_of)
+    await write_audit(db, tenant_id=me.tenant_id, user_id=me.id, entity_id=entity_id, action="report_viewed", object_type="ap_aging", object_id=None, after={"as_of": str(as_of)}, ip=ctx.ip, user_agent=ctx.user_agent)
+    return result
+
+
+@router.get("/reports/ap-aging/export.csv")
+async def ap_aging_csv(
+    entity_id: uuid.UUID,
+    db: DB,
+    me: CurrentUserDep,
+    ctx: RequestCtx,
+    scoped: Annotated[tuple[Entity, EntityMember], Depends(require_reader)],
+    as_of: date = Query(default_factory=date.today),
+) -> StreamingResponse:
+    result = await ap_aging(db, entity_id=entity_id, as_of=as_of)
+    await write_audit(db, tenant_id=me.tenant_id, user_id=me.id, entity_id=entity_id, action="export", object_type="ap_aging", object_id=None, after={"format": "csv", "as_of": str(as_of)}, ip=ctx.ip, user_agent=ctx.user_agent)
+    headers = ["Vendor", "Bill #", "Due Date", "Current", "1–30 Days", "31–60 Days", "61–90 Days", "90+ Days", "Balance Due"]
+    rows = [[r.counterparty_name, r.number, str(r.due_date), str(r.current), str(r.days_1_30), str(r.days_31_60), str(r.days_61_90), str(r.days_91_plus), str(r.balance_due)] for r in result.rows]
+    return _make_csv(headers, rows)
 
 
 @router.get("/reports/balance-sheet", response_model=BalanceSheetOut)
 async def balance_sheet_endpoint(
-    entity_id: uuid.UUID, db: DB, scoped: Annotated[tuple[Entity, EntityMember], Depends(require_reader)], as_of: date = Query(default_factory=date.today)
+    entity_id: uuid.UUID,
+    db: DB,
+    me: CurrentUserDep,
+    ctx: RequestCtx,
+    scoped: Annotated[tuple[Entity, EntityMember], Depends(require_reader)],
+    as_of: date = Query(default_factory=date.today),
 ) -> BalanceSheetOut:
-    return await balance_sheet(db, entity_id=entity_id, as_of=as_of)
+    result = await balance_sheet(db, entity_id=entity_id, as_of=as_of)
+    await write_audit(db, tenant_id=me.tenant_id, user_id=me.id, entity_id=entity_id, action="report_viewed", object_type="balance_sheet", object_id=None, after={"as_of": str(as_of)}, ip=ctx.ip, user_agent=ctx.user_agent)
+    return result
+
+
+@router.get("/reports/balance-sheet/export.csv")
+async def balance_sheet_csv(
+    entity_id: uuid.UUID,
+    db: DB,
+    me: CurrentUserDep,
+    ctx: RequestCtx,
+    scoped: Annotated[tuple[Entity, EntityMember], Depends(require_reader)],
+    as_of: date = Query(default_factory=date.today),
+) -> StreamingResponse:
+    result = await balance_sheet(db, entity_id=entity_id, as_of=as_of)
+    await write_audit(db, tenant_id=me.tenant_id, user_id=me.id, entity_id=entity_id, action="export", object_type="balance_sheet", object_id=None, after={"format": "csv", "as_of": str(as_of)}, ip=ctx.ip, user_agent=ctx.user_agent)
+    headers = ["Section", "Account Code", "Account Name", "Amount"]
+    rows: list[list] = []
+    for r in result.assets:
+        rows.append(["Assets", r.code, r.name, str(r.amount)])
+    for r in result.liabilities:
+        rows.append(["Liabilities", r.code, r.name, str(r.amount)])
+    for r in result.equity:
+        rows.append(["Equity", r.code, r.name, str(r.amount)])
+    rows.append(["Summary", "", "Total Assets", str(result.total_assets)])
+    rows.append(["Summary", "", "Total Liabilities", str(result.total_liabilities)])
+    rows.append(["Summary", "", "Total Equity + Earnings", str(result.total_equity + result.current_earnings)])
+    return _make_csv(headers, rows)
 
 
 @router.get("/reports/income-statement", response_model=IncomeStatementOut)
 async def income_statement_endpoint(
     entity_id: uuid.UUID,
     db: DB,
+    me: CurrentUserDep,
+    ctx: RequestCtx,
     scoped: Annotated[tuple[Entity, EntityMember], Depends(require_reader)],
     date_from: date,
     date_to: date,
 ) -> IncomeStatementOut:
-    return await income_statement(db, entity_id=entity_id, date_from=date_from, date_to=date_to)
+    result = await income_statement(db, entity_id=entity_id, date_from=date_from, date_to=date_to)
+    await write_audit(db, tenant_id=me.tenant_id, user_id=me.id, entity_id=entity_id, action="report_viewed", object_type="income_statement", object_id=None, after={"date_from": str(date_from), "date_to": str(date_to)}, ip=ctx.ip, user_agent=ctx.user_agent)
+    return result
+
+
+@router.get("/reports/income-statement/export.csv")
+async def income_statement_csv(
+    entity_id: uuid.UUID,
+    db: DB,
+    me: CurrentUserDep,
+    ctx: RequestCtx,
+    scoped: Annotated[tuple[Entity, EntityMember], Depends(require_reader)],
+    date_from: date,
+    date_to: date,
+) -> StreamingResponse:
+    result = await income_statement(db, entity_id=entity_id, date_from=date_from, date_to=date_to)
+    await write_audit(db, tenant_id=me.tenant_id, user_id=me.id, entity_id=entity_id, action="export", object_type="income_statement", object_id=None, after={"format": "csv", "date_from": str(date_from), "date_to": str(date_to)}, ip=ctx.ip, user_agent=ctx.user_agent)
+    headers = ["Section", "Account Code", "Account Name", "Amount"]
+    rows: list[list] = []
+    for r in result.income:
+        rows.append(["Revenue", r.code, r.name, str(r.amount)])
+    for r in result.expenses:
+        rows.append(["Expenses", r.code, r.name, str(r.amount)])
+    rows.append(["Summary", "", "Total Revenue", str(result.total_income)])
+    rows.append(["Summary", "", "Total Expenses", str(result.total_expenses)])
+    rows.append(["Summary", "", "Net Income", str(result.net_income)])
+    return _make_csv(headers, rows)
 
 
 @router.get("/reports/cash-flow", response_model=CashFlowOut)
 async def cash_flow_endpoint(
     entity_id: uuid.UUID,
     db: DB,
+    me: CurrentUserDep,
+    ctx: RequestCtx,
     scoped: Annotated[tuple[Entity, EntityMember], Depends(require_reader)],
     date_from: date,
     date_to: date,
 ) -> CashFlowOut:
-    return await cash_flow_statement(db, entity_id=entity_id, date_from=date_from, date_to=date_to)
+    result = await cash_flow_statement(db, entity_id=entity_id, date_from=date_from, date_to=date_to)
+    await write_audit(db, tenant_id=me.tenant_id, user_id=me.id, entity_id=entity_id, action="report_viewed", object_type="cash_flow", object_id=None, after={"date_from": str(date_from), "date_to": str(date_to)}, ip=ctx.ip, user_agent=ctx.user_agent)
+    return result
 
 
 @router.get("/reports/revenue-by-customer", response_model=RevenueByCustomerOut)
 async def revenue_by_customer_endpoint(
     entity_id: uuid.UUID,
     db: DB,
+    me: CurrentUserDep,
+    ctx: RequestCtx,
     scoped: Annotated[tuple[Entity, EntityMember], Depends(require_reader)],
     date_from: date,
     date_to: date,
 ) -> RevenueByCustomerOut:
-    return await revenue_by_customer(db, entity_id=entity_id, date_from=date_from, date_to=date_to)
+    result = await revenue_by_customer(db, entity_id=entity_id, date_from=date_from, date_to=date_to)
+    await write_audit(db, tenant_id=me.tenant_id, user_id=me.id, entity_id=entity_id, action="report_viewed", object_type="revenue_by_customer", object_id=None, after={"date_from": str(date_from), "date_to": str(date_to)}, ip=ctx.ip, user_agent=ctx.user_agent)
+    return result
+
+
+@router.get("/reports/revenue-by-customer/export.csv")
+async def revenue_by_customer_csv(
+    entity_id: uuid.UUID,
+    db: DB,
+    me: CurrentUserDep,
+    ctx: RequestCtx,
+    scoped: Annotated[tuple[Entity, EntityMember], Depends(require_reader)],
+    date_from: date,
+    date_to: date,
+) -> StreamingResponse:
+    result = await revenue_by_customer(db, entity_id=entity_id, date_from=date_from, date_to=date_to)
+    await write_audit(db, tenant_id=me.tenant_id, user_id=me.id, entity_id=entity_id, action="export", object_type="revenue_by_customer", object_id=None, after={"format": "csv", "date_from": str(date_from), "date_to": str(date_to)}, ip=ctx.ip, user_agent=ctx.user_agent)
+    headers = ["Customer", "Revenue", "Invoice Count"]
+    rows = [[r.counterparty_name, str(r.amount), str(r.document_count)] for r in result.rows]
+    rows.append(["TOTAL", str(result.total_revenue), ""])
+    return _make_csv(headers, rows)
 
 
 @router.get("/reports/expenses-by-vendor", response_model=ExpensesByVendorOut)
 async def expenses_by_vendor_endpoint(
     entity_id: uuid.UUID,
     db: DB,
+    me: CurrentUserDep,
+    ctx: RequestCtx,
     scoped: Annotated[tuple[Entity, EntityMember], Depends(require_reader)],
     date_from: date,
     date_to: date,
 ) -> ExpensesByVendorOut:
-    return await expenses_by_vendor(db, entity_id=entity_id, date_from=date_from, date_to=date_to)
+    result = await expenses_by_vendor(db, entity_id=entity_id, date_from=date_from, date_to=date_to)
+    await write_audit(db, tenant_id=me.tenant_id, user_id=me.id, entity_id=entity_id, action="report_viewed", object_type="expenses_by_vendor", object_id=None, after={"date_from": str(date_from), "date_to": str(date_to)}, ip=ctx.ip, user_agent=ctx.user_agent)
+    return result
+
+
+@router.get("/reports/expenses-by-vendor/export.csv")
+async def expenses_by_vendor_csv(
+    entity_id: uuid.UUID,
+    db: DB,
+    me: CurrentUserDep,
+    ctx: RequestCtx,
+    scoped: Annotated[tuple[Entity, EntityMember], Depends(require_reader)],
+    date_from: date,
+    date_to: date,
+) -> StreamingResponse:
+    result = await expenses_by_vendor(db, entity_id=entity_id, date_from=date_from, date_to=date_to)
+    await write_audit(db, tenant_id=me.tenant_id, user_id=me.id, entity_id=entity_id, action="export", object_type="expenses_by_vendor", object_id=None, after={"format": "csv", "date_from": str(date_from), "date_to": str(date_to)}, ip=ctx.ip, user_agent=ctx.user_agent)
+    headers = ["Vendor", "Expenses", "Bill Count"]
+    rows = [[r.counterparty_name, str(r.amount), str(r.document_count)] for r in result.rows]
+    rows.append(["TOTAL", str(result.total_expenses), ""])
+    return _make_csv(headers, rows)
 
 
 @router.get("/reports/gross-margin", response_model=GrossMarginOut)
 async def gross_margin_endpoint(
     entity_id: uuid.UUID,
     db: DB,
+    me: CurrentUserDep,
+    ctx: RequestCtx,
     scoped: Annotated[tuple[Entity, EntityMember], Depends(require_reader)],
     date_from: date,
     date_to: date,
 ) -> GrossMarginOut:
-    return await gross_margin_report(db, entity_id=entity_id, date_from=date_from, date_to=date_to)
+    result = await gross_margin_report(db, entity_id=entity_id, date_from=date_from, date_to=date_to)
+    await write_audit(db, tenant_id=me.tenant_id, user_id=me.id, entity_id=entity_id, action="report_viewed", object_type="gross_margin", object_id=None, after={"date_from": str(date_from), "date_to": str(date_to)}, ip=ctx.ip, user_agent=ctx.user_agent)
+    return result
 
 
 @router.get("/reports/runway", response_model=RunwayReportOut)
 async def runway_endpoint(
     entity_id: uuid.UUID,
     db: DB,
+    me: CurrentUserDep,
+    ctx: RequestCtx,
     scoped: Annotated[tuple[Entity, EntityMember], Depends(require_reader)],
     as_of: date = Query(default_factory=date.today),
 ) -> RunwayReportOut:
-    return await runway_report(db, entity_id=entity_id, as_of=as_of)
+    result = await runway_report(db, entity_id=entity_id, as_of=as_of)
+    await write_audit(db, tenant_id=me.tenant_id, user_id=me.id, entity_id=entity_id, action="report_viewed", object_type="runway", object_id=None, after={"as_of": str(as_of)}, ip=ctx.ip, user_agent=ctx.user_agent)
+    return result
 
 
 @router.get("/reports/tax-reserve", response_model=TaxReserveReportOut)
 async def tax_reserve_report_endpoint(
     entity_id: uuid.UUID,
     db: DB,
+    me: CurrentUserDep,
+    ctx: RequestCtx,
     scoped: Annotated[tuple[Entity, EntityMember], Depends(require_reader)],
     as_of: date = Query(default_factory=date.today),
 ) -> TaxReserveReportOut:
-    return await tax_reserve_report(db, entity_id=entity_id, as_of=as_of)
+    result = await tax_reserve_report(db, entity_id=entity_id, as_of=as_of)
+    await write_audit(db, tenant_id=me.tenant_id, user_id=me.id, entity_id=entity_id, action="report_viewed", object_type="tax_reserve", object_id=None, after={"as_of": str(as_of)}, ip=ctx.ip, user_agent=ctx.user_agent)
+    return result
 
 
 @router.get("/reports/profitability-explanation", response_model=ExplanationOut)

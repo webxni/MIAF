@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import csv
+import io
 import uuid
 from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Response, status
+from starlette.responses import StreamingResponse
 
 from app.api.deps import DB, CurrentUserDep, RequestCtx, require_reader, require_writer
 from app.models import Entity, EntityMember
@@ -67,6 +70,19 @@ from app.services.personal import (
 )
 
 router = APIRouter(prefix="/entities/{entity_id}/personal", tags=["personal"])
+
+
+def _make_csv(headers: list[str], rows: list[list]) -> StreamingResponse:
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(headers)
+    writer.writerows(rows)
+    buf.seek(0)
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment"},
+    )
 
 
 def _budget_dict(budget) -> dict:
@@ -142,60 +158,104 @@ async def dashboard_endpoint(
 async def net_worth_report_endpoint(
     entity_id: uuid.UUID,
     db: DB,
+    me: CurrentUserDep,
+    ctx: RequestCtx,
     scoped: Annotated[tuple[Entity, EntityMember], Depends(require_reader)],
     as_of: date = Query(default_factory=date.today),
 ) -> NetWorthSnapshotOut:
-    return await net_worth_statement(db, entity_id=entity_id, as_of=as_of)
+    result = await net_worth_statement(db, entity_id=entity_id, as_of=as_of)
+    await write_audit(db, tenant_id=me.tenant_id, user_id=me.id, entity_id=entity_id, action="report_viewed", object_type="net_worth", object_id=None, after={"as_of": str(as_of)}, ip=ctx.ip, user_agent=ctx.user_agent)
+    return result
+
+
+@router.get("/reports/net-worth/export.csv")
+async def net_worth_csv(
+    entity_id: uuid.UUID,
+    db: DB,
+    me: CurrentUserDep,
+    ctx: RequestCtx,
+    scoped: Annotated[tuple[Entity, EntityMember], Depends(require_reader)],
+    as_of: date = Query(default_factory=date.today),
+) -> StreamingResponse:
+    result = await net_worth_statement(db, entity_id=entity_id, as_of=as_of)
+    await write_audit(db, tenant_id=me.tenant_id, user_id=me.id, entity_id=entity_id, action="export", object_type="net_worth", object_id=None, after={"format": "csv", "as_of": str(as_of)}, ip=ctx.ip, user_agent=ctx.user_agent)
+    headers = ["Metric", "Amount"]
+    rows = [
+        ["Total Assets", str(result.total_assets)],
+        ["Total Liabilities", str(result.total_liabilities)],
+        ["Net Worth", str(result.net_worth)],
+        ["As Of", str(result.as_of)],
+    ]
+    return _make_csv(headers, rows)
 
 
 @router.get("/reports/monthly-cash-flow", response_model=CashFlowSummaryOut)
 async def monthly_cash_flow_endpoint(
     entity_id: uuid.UUID,
     db: DB,
+    me: CurrentUserDep,
+    ctx: RequestCtx,
     scoped: Annotated[tuple[Entity, EntityMember], Depends(require_reader)],
     as_of: date = Query(default_factory=date.today),
 ) -> CashFlowSummaryOut:
-    return await monthly_cash_flow_report(db, entity_id=entity_id, as_of=as_of)
+    result = await monthly_cash_flow_report(db, entity_id=entity_id, as_of=as_of)
+    await write_audit(db, tenant_id=me.tenant_id, user_id=me.id, entity_id=entity_id, action="report_viewed", object_type="monthly_cash_flow", object_id=None, after={"as_of": str(as_of)}, ip=ctx.ip, user_agent=ctx.user_agent)
+    return result
 
 
 @router.get("/reports/debt-payoff-plan", response_model=DebtPayoffPlanOut)
 async def debt_payoff_endpoint(
     entity_id: uuid.UUID,
     db: DB,
+    me: CurrentUserDep,
+    ctx: RequestCtx,
     scoped: Annotated[tuple[Entity, EntityMember], Depends(require_reader)],
     as_of: date = Query(default_factory=date.today),
 ) -> DebtPayoffPlanOut:
-    return await debt_payoff_plan(db, entity_id=entity_id, as_of=as_of)
+    result = await debt_payoff_plan(db, entity_id=entity_id, as_of=as_of)
+    await write_audit(db, tenant_id=me.tenant_id, user_id=me.id, entity_id=entity_id, action="report_viewed", object_type="debt_payoff_plan", object_id=None, after={"as_of": str(as_of)}, ip=ctx.ip, user_agent=ctx.user_agent)
+    return result
 
 
 @router.get("/reports/emergency-fund-plan", response_model=EmergencyFundPlanOut)
 async def emergency_fund_plan_endpoint(
     entity_id: uuid.UUID,
     db: DB,
+    me: CurrentUserDep,
+    ctx: RequestCtx,
     scoped: Annotated[tuple[Entity, EntityMember], Depends(require_reader)],
     as_of: date = Query(default_factory=date.today),
 ) -> EmergencyFundPlanOut:
-    return await emergency_fund_plan(db, entity_id=entity_id, as_of=as_of)
+    result = await emergency_fund_plan(db, entity_id=entity_id, as_of=as_of)
+    await write_audit(db, tenant_id=me.tenant_id, user_id=me.id, entity_id=entity_id, action="report_viewed", object_type="emergency_fund_plan", object_id=None, after={"as_of": str(as_of)}, ip=ctx.ip, user_agent=ctx.user_agent)
+    return result
 
 
 @router.get("/reports/investment-allocation", response_model=InvestmentAllocationSummaryOut)
 async def investment_allocation_endpoint(
     entity_id: uuid.UUID,
     db: DB,
+    me: CurrentUserDep,
+    ctx: RequestCtx,
     scoped: Annotated[tuple[Entity, EntityMember], Depends(require_reader)],
     as_of: date = Query(default_factory=date.today),
 ) -> InvestmentAllocationSummaryOut:
-    return await investment_allocation_summary(db, entity_id=entity_id, as_of=as_of)
+    result = await investment_allocation_summary(db, entity_id=entity_id, as_of=as_of)
+    await write_audit(db, tenant_id=me.tenant_id, user_id=me.id, entity_id=entity_id, action="report_viewed", object_type="investment_allocation", object_id=None, after={"as_of": str(as_of)}, ip=ctx.ip, user_agent=ctx.user_agent)
+    return result
 
 
 @router.get("/reports/business-dependency", response_model=BusinessDependencyOut)
 async def business_dependency_report_endpoint(
     entity_id: uuid.UUID,
     db: DB,
+    me: CurrentUserDep,
+    ctx: RequestCtx,
     scoped: Annotated[tuple[Entity, EntityMember], Depends(require_reader)],
     as_of: date = Query(default_factory=date.today),
 ) -> BusinessDependencyOut:
     dashboard = await personal_dashboard(db, entity_id=entity_id, as_of=as_of)
+    await write_audit(db, tenant_id=me.tenant_id, user_id=me.id, entity_id=entity_id, action="report_viewed", object_type="business_dependency", object_id=None, after={"as_of": str(as_of)}, ip=ctx.ip, user_agent=ctx.user_agent)
     return dashboard.business_dependency
 
 

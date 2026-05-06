@@ -26,6 +26,7 @@ from app.api.user_settings import router as user_settings_router
 from app.config import get_settings
 from app.core.brand import SHORT_NAME
 from app.errors import install_error_handlers
+from app.middleware import IPRateLimitMiddleware
 from app.health import router as health_router
 from app.services.skills import load_skill_manifests
 
@@ -59,6 +60,7 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
+app.add_middleware(IPRateLimitMiddleware)
 
 install_error_handlers(app)
 
