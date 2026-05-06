@@ -145,6 +145,7 @@ API surface (Phases 1-6 backend):
 * `GET/POST /api/entities/{id}/business/closing-periods`.
 * `POST /api/entities/{id}/documents/receipts` multipart upload.
 * `POST /api/entities/{id}/documents/csv-imports` multipart upload.
+* `GET /api/entities/{id}/documents/pending-drafts`.
 * `POST /api/entities/{id}/documents/extraction-candidates/{candidate_id}/approve`.
 * `GET /api/entities/{id}/documents/attachments/{attachment_id}/download-url`.
 * `POST /api/agent/chat`.
@@ -215,7 +216,7 @@ Phase 4 status:
 * File storage currently uses existing `attachments` as the persisted file record; the phase-specific metadata tables are `import_batches`, `document_extractions`, and `extraction_candidates`.
 * Receipt extraction is currently deterministic text parsing, not full binary OCR. Tests use text receipts; future work can plug Tesseract into the same extraction model.
 * Candidate approval creates a draft journal entry linked back to the `source_transaction` and updates the attachment to keep the original document attached.
-* CSV import creates `source_transactions` with `kind="csv_row"` and marks batch counts in `import_batches`.
+* CSV import creates `source_transactions` with `kind="csv_row"`, auto-drafts balanced outflow journal entries linked back through `source_transaction_id`, exposes those review items at `/documents/pending-drafts`, and marks batch counts in `import_batches`. Positive CSV inflows currently stay as source rows only for manual review.
 * Signed download URLs are generated through MinIO presigned URLs; audit file access through the document routes.
 
 Phase 5 status:

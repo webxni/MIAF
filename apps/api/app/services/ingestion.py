@@ -6,12 +6,14 @@ import hashlib
 import io
 import re
 import uuid
+from collections.abc import Callable
 from datetime import datetime, timezone
 from decimal import Decimal
 
 from minio import Minio
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.errors import FinClawError, NotFoundError
 from app.models import (
@@ -25,16 +27,19 @@ from app.models import (
     ImportBatch,
     ImportBatchStatus,
     JournalEntry,
+    JournalEntryStatus,
     SourceTransaction,
     SourceTransactionStatus,
 )
 from app.models.base import utcnow
 from app.money import ZERO, to_money
-from app.schemas.ingestion import CandidateApprovalOut, CsvImportOut, ReceiptIngestionOut
+from app.schemas.ingestion import CandidateApprovalOut, CsvImportOut, PendingDraftOut, PendingDraftSourceOut, ReceiptIngestionOut
 from app.schemas.journal import JournalEntryCreate, JournalLineIn
-from app.storage import ensure_bucket, minio_client
 from app.config import get_settings
+from app.services.audit import write_audit
+from app.services.classifier import classify_source_transaction
 from app.services.journal import create_draft
+from app.storage import ensure_bucket, minio_client
 
 MAX_FILE_BYTES = 10 * 1024 * 1024
 ALLOWED_UPLOAD_TYPES = {
@@ -128,6 +133,26 @@ async def _default_expense_account(db: AsyncSession, entity_id: uuid.UUID, merch
         if account.code == "5200":
             return account
     return rows[0]
+
+
+def _csv_memo(raw: dict | None) -> str | None:
+    raw = raw or {}
+    return raw.get("memo") or raw.get("description")
+
+
+def _outflow_amount(amount: Decimal | None) -> Decimal | None:
+    if amount is None or amount >= ZERO:
+        return None
+    return to_money(abs(amount))
+
+
+async def _cash_account(db: AsyncSession, entity_id: uuid.UUID) -> Account:
+    account = (
+        await db.execute(select(Account).where(Account.entity_id == entity_id, Account.code == "1110"))
+    ).scalar_one_or_none()
+    if account is None:
+        raise NotFoundError("Cash account 1110 not found", code="account_not_found")
+    return account
 
 
 async def store_attachment(
@@ -340,6 +365,94 @@ async def approve_candidate(
     return CandidateApprovalOut(candidate=candidate, journal_entry_id=entry.id)
 
 
+async def _auto_draft_csv_outflow(
+    db: AsyncSession,
+    *,
+    tenant_id: uuid.UUID,
+    entity_id: uuid.UUID,
+    user_id: uuid.UUID | None,
+    source_tx: SourceTransaction,
+    accounts: list[Account],
+    memory_lookup: Callable[[str], Account | None] | None = None,
+) -> JournalEntry | None:
+    amount = _outflow_amount(source_tx.amount)
+    if amount is None:
+        return None
+
+    expense_account, classifier_reason = classify_source_transaction(
+        source_tx,
+        accounts,
+        memory_lookup=memory_lookup,
+    )
+    cash_account = await _cash_account(db, entity_id)
+    entry = await create_draft(
+        db,
+        entity_id=entity_id,
+        user_id=user_id,
+        payload=JournalEntryCreate(
+            entry_date=(source_tx.occurred_at or utcnow()).date(),
+            memo=source_tx.merchant or _csv_memo(source_tx.raw),
+            source_transaction_id=source_tx.id,
+            lines=[
+                JournalLineIn(account_id=expense_account.id, debit=amount, credit=ZERO),
+                JournalLineIn(account_id=cash_account.id, debit=ZERO, credit=amount),
+            ],
+        ),
+    )
+    source_tx.status = SourceTransactionStatus.matched
+    await write_audit(
+        db,
+        tenant_id=tenant_id,
+        user_id=user_id,
+        entity_id=entity_id,
+        action="auto_draft",
+        object_type="journal_entry",
+        object_id=entry.id,
+        after={
+            "source_transaction_id": str(source_tx.id),
+            "classifier_reason": classifier_reason,
+        },
+    )
+    return entry
+
+
+async def list_pending_source_drafts(
+    db: AsyncSession,
+    *,
+    entity_id: uuid.UUID,
+) -> list[PendingDraftOut]:
+    rows = (
+        await db.execute(
+            select(JournalEntry, SourceTransaction)
+            .join(SourceTransaction, SourceTransaction.id == JournalEntry.source_transaction_id)
+            .options(selectinload(JournalEntry.lines))
+            .where(
+                JournalEntry.entity_id == entity_id,
+                JournalEntry.status == JournalEntryStatus.draft,
+                JournalEntry.source_transaction_id.is_not(None),
+            )
+            .order_by(JournalEntry.entry_date.desc(), JournalEntry.created_at.desc())
+        )
+    ).all()
+
+    return [
+        PendingDraftOut(
+            id=entry.id,
+            entry_date=entry.entry_date,
+            memo=entry.memo,
+            lines=entry.lines,
+            source=PendingDraftSourceOut(
+                merchant=source_tx.merchant,
+                memo=_csv_memo(source_tx.raw),
+                amount=source_tx.amount,
+                currency=source_tx.currency,
+                posted_at=source_tx.occurred_at,
+            ),
+        )
+        for entry, source_tx in rows
+    ]
+
+
 async def import_csv_transactions(
     db: AsyncSession,
     *,
@@ -350,6 +463,11 @@ async def import_csv_transactions(
     content_type: str,
     data: bytes,
 ) -> CsvImportOut:
+    """Import CSV rows into source transactions and auto-draft outflow journal entries.
+
+    Positive amounts are imported as SourceTransaction rows only and intentionally do not
+    create draft journal entries in this initial pass.
+    """
     text = data.decode("utf-8", errors="ignore")
     reader = csv.DictReader(io.StringIO(text))
     rows = list(reader)
@@ -375,7 +493,11 @@ async def import_csv_transactions(
     db.add(batch)
     await db.flush()
 
+    accounts = (
+        await db.execute(select(Account).where(Account.entity_id == entity_id, Account.is_active.is_(True)).order_by(Account.code))
+    ).scalars().all()
     created: list[SourceTransaction] = []
+    drafts_created = 0
     failures = 0
     for row in rows:
         try:
@@ -398,6 +520,15 @@ async def import_csv_transactions(
             )
             db.add(source_tx)
             await db.flush()
+            if await _auto_draft_csv_outflow(
+                db,
+                tenant_id=tenant_id,
+                entity_id=entity_id,
+                user_id=user_id,
+                source_tx=source_tx,
+                accounts=accounts,
+            ):
+                drafts_created += 1
             created.append(source_tx)
         except Exception:
             failures += 1
@@ -407,7 +538,7 @@ async def import_csv_transactions(
     if failures:
         batch.error_message = f"{failures} row(s) failed"
     await db.flush()
-    return CsvImportOut(batch=batch, source_transactions=created)
+    return CsvImportOut(batch=batch, source_transactions=created, drafts_created=drafts_created)
 
 
 async def get_attachment_scoped(

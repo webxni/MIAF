@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.models import CandidateStatus, ExtractionStatus, ImportBatchStatus
+from app.schemas.journal import JournalLineOut
 
 
 class AttachmentOut(BaseModel):
@@ -116,6 +117,23 @@ class SourceTransactionOut(BaseModel):
 class CsvImportOut(BaseModel):
     batch: ImportBatchOut
     source_transactions: list[SourceTransactionOut]
+    drafts_created: int = 0
+
+
+class PendingDraftSourceOut(BaseModel):
+    merchant: str | None
+    memo: str | None
+    amount: Decimal | None
+    currency: str | None
+    posted_at: datetime | None
+
+
+class PendingDraftOut(BaseModel):
+    id: uuid.UUID
+    entry_date: date
+    memo: str | None
+    lines: list[JournalLineOut]
+    source: PendingDraftSourceOut
 
 
 class DownloadUrlOut(BaseModel):

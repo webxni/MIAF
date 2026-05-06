@@ -7,9 +7,9 @@ from fastapi import APIRouter, Depends, File, Form, UploadFile, status
 
 from app.api.deps import DB, CurrentUserDep, RequestCtx, require_reader, require_writer
 from app.models import Entity, EntityMember
-from app.schemas.ingestion import CandidateApprovalIn, CandidateApprovalOut, CsvImportOut, DownloadUrlOut, ReceiptIngestionOut
+from app.schemas.ingestion import CandidateApprovalIn, CandidateApprovalOut, CsvImportOut, DownloadUrlOut, PendingDraftOut, ReceiptIngestionOut
 from app.services.audit import write_audit
-from app.services.ingestion import approve_candidate, get_attachment_scoped, import_csv_transactions, ingest_receipt, signed_download_url
+from app.services.ingestion import approve_candidate, get_attachment_scoped, import_csv_transactions, ingest_receipt, list_pending_source_drafts, signed_download_url
 
 router = APIRouter(prefix="/entities/{entity_id}/documents", tags=["documents"])
 
@@ -139,3 +139,14 @@ async def attachment_download_url_endpoint(
         user_agent=ctx.user_agent,
     )
     return DownloadUrlOut(attachment_id=attachment.id, url=url)
+
+
+@router.get("/pending-drafts", response_model=list[PendingDraftOut])
+async def pending_drafts_endpoint(
+    entity_id: uuid.UUID,
+    db: DB,
+    me: CurrentUserDep,
+    ctx: RequestCtx,
+    scoped: Annotated[tuple[Entity, EntityMember], Depends(require_reader)],
+) -> list[PendingDraftOut]:
+    return await list_pending_source_drafts(db, entity_id=entity_id)
