@@ -19,9 +19,6 @@ from app.services.agent import (
     build_tool_registry,
 )
 
-pytestmark = pytest.mark.asyncio
-
-
 async def _current_user(db, seeded) -> CurrentUser:
     user = await db.get(User, uuid.UUID(seeded["user_id"]))
     session = Session(
