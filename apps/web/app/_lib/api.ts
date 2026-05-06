@@ -421,6 +421,13 @@ export type JournalLine = {
   description: string | null;
 };
 
+export type JournalLineInput = {
+  account_id: string;
+  debit: string;
+  credit: string;
+  description?: string | null;
+};
+
 export type JournalEntry = {
   id: string;
   entity_id: string;
@@ -432,6 +439,20 @@ export type JournalEntry = {
   voided_at: string | null;
   voided_reason: string | null;
   lines: JournalLine[];
+};
+
+export type PendingDraft = {
+  id: string;
+  entry_date: string;
+  memo: string | null;
+  lines: JournalLine[];
+  source: {
+    merchant: string | null;
+    memo: string | null;
+    amount: string | null;
+    currency: string | null;
+    posted_at: string | null;
+  };
 };
 
 export async function listGoals(entityId: string): Promise<Goal[]> {
@@ -448,6 +469,34 @@ export async function listAccounts(entityId: string): Promise<Account[]> {
 
 export async function listJournalEntries(entityId: string): Promise<JournalEntry[]> {
   return apiFetch<JournalEntry[]>(`/entities/${entityId}/journal-entries`);
+}
+
+export async function listPendingDrafts(entityId: string): Promise<PendingDraft[]> {
+  return apiFetch<PendingDraft[]>(`/entities/${entityId}/documents/pending-drafts`);
+}
+
+export async function updateJournalEntry(
+  entityId: string,
+  id: string,
+  lines: JournalLineInput[],
+): Promise<JournalEntry> {
+  return apiFetch<JournalEntry>(`/entities/${entityId}/journal-entries/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ lines }),
+  });
+}
+
+export async function postJournalEntry(entityId: string, id: string): Promise<JournalEntry> {
+  return apiFetch<JournalEntry>(`/entities/${entityId}/journal-entries/${id}/post`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+export async function deleteJournalEntry(entityId: string, id: string): Promise<void> {
+  return apiFetch<void>(`/entities/${entityId}/journal-entries/${id}`, {
+    method: "DELETE",
+  });
 }
 
 export function findEntityByMode(items: Entity[], mode: Entity["mode"]): Entity | null {

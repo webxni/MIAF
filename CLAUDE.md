@@ -223,7 +223,7 @@ Phase 5 status:
 * Web files live under `apps/web/app`.
 * Current route coverage includes `/login`, public first-run `/onboarding`, `/dashboard`, `/agent`, `/personal`, `/business`, `/documents`, `/skills`, `/settings`, `/audit-log`, and placeholder anchors for budget/goals/debts/investments/accounts/ledger/invoices/bills/reports.
 * The app shell includes sidebar navigation, entity switcher, and logout flow.
-* `documents/page.tsx` uploads receipts and CSV files into Phase 4 endpoints.
+* `documents/page.tsx` uploads receipts and CSV files into Phase 4 endpoints and now includes pending drafts review on `/documents`, grouped by personal/business entity with account reassignment plus approve/post and decline actions against the existing journal/document APIs.
 * The login page links to `/onboarding`; the onboarding flow posts to `POST /api/auth/register-owner`, redirects successful first-run setup to `/dashboard`, and sends already-configured installs back to `/login` with a friendly message.
 * `/settings` now loads `/auth/me` plus `GET /api/settings`, exposes read-only profile details, and lets the owner update jurisdiction, base currency, fiscal-year start month, AI provider/model, and a write-only provider API key with masked last-four UX.
 * `/agent` now posts typed payloads to `POST /api/agent/chat`, renders the agent thread plus planned tool calls, and round-trips `pending_confirmations` back as `confirmations` when the user explicitly confirms a sensitive action.
