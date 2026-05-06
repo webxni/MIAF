@@ -29,6 +29,8 @@ class Settings(BaseSettings):
     cors_allow_origins: str = Field(default="http://localhost:3000,http://127.0.0.1:3000", alias="CORS_ALLOW_ORIGINS")
     login_rate_limit_window_minutes: int = Field(default=15, alias="LOGIN_RATE_LIMIT_WINDOW_MINUTES")
     login_rate_limit_attempts: int = Field(default=5, alias="LOGIN_RATE_LIMIT_ATTEMPTS")
+    agent_rate_limit_window_seconds: int = Field(default=60, alias="AGENT_RATE_LIMIT_WINDOW_SECONDS")
+    agent_rate_limit_attempts: int = Field(default=30, alias="AGENT_RATE_LIMIT_ATTEMPTS")
 
     @property
     def session_cookie_secure(self) -> bool:

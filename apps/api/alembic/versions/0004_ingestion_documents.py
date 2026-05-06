@@ -17,16 +17,31 @@ down_revision: Union[str, None] = "0003_business_finance"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
-IMPORT_BATCH_STATUS = sa.Enum("processing", "completed", "failed", name="import_batch_status")
-EXTRACTION_STATUS = sa.Enum("pending", "extracted", "needs_review", "approved", "rejected", name="extraction_status")
-CANDIDATE_STATUS = sa.Enum("suggested", "approved", "rejected", name="candidate_status")
+IMPORT_BATCH_STATUS = postgresql.ENUM(
+    "processing", "completed", "failed",
+    name="import_batch_status",
+    create_type=False,
+)
+EXTRACTION_STATUS = postgresql.ENUM(
+    "pending", "extracted", "needs_review", "approved", "rejected",
+    name="extraction_status",
+    create_type=False,
+)
+CANDIDATE_STATUS = postgresql.ENUM(
+    "suggested", "approved", "rejected",
+    name="candidate_status",
+    create_type=False,
+)
+
+
+def _create_enum(name: str, *labels: str) -> None:
+    postgresql.ENUM(*labels, name=name).create(op.get_bind(), checkfirst=True)
 
 
 def upgrade() -> None:
-    bind = op.get_bind()
-    IMPORT_BATCH_STATUS.create(bind, checkfirst=True)
-    EXTRACTION_STATUS.create(bind, checkfirst=True)
-    CANDIDATE_STATUS.create(bind, checkfirst=True)
+    _create_enum("import_batch_status", "processing", "completed", "failed")
+    _create_enum("extraction_status", "pending", "extracted", "needs_review", "approved", "rejected")
+    _create_enum("candidate_status", "suggested", "approved", "rejected")
 
     op.create_table(
         "import_batches",

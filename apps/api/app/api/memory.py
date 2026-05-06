@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Response
 
 from app.api.deps import CurrentUserDep, DB, RequestCtx
 from app.models import MemoryType
@@ -149,13 +149,13 @@ async def post_memory_expire(
     return MemoryOut.model_validate(memory)
 
 
-@router.delete("/{memory_id}", status_code=204)
+@router.delete("/{memory_id}", status_code=204, response_class=Response)
 async def forget_memory(
     memory_id: uuid.UUID,
     db: DB,
     me: CurrentUserDep,
     ctx: RequestCtx,
-) -> None:
+) -> Response:
     memory = await get_memory_scoped(db, tenant_id=me.tenant_id, memory_id=memory_id)
     await delete_memory(db, memory, user_id=me.id)
     await write_audit(
@@ -170,3 +170,4 @@ async def forget_memory(
         ip=ctx.ip,
         user_agent=ctx.user_agent,
     )
+    return Response(status_code=204)

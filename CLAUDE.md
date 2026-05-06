@@ -11,7 +11,7 @@ This repo is active and already has Phases 0, 1, 2, 3, 4, an initial Phase 5 web
 - Phase 2: personal finance backend with models + migration for budgets, goals, debts, investment accounts/holdings, and net worth snapshots; personal CRUD/reporting endpoints; deterministic personal dashboard KPIs; budget-vs-actuals; persisted net worth snapshots; tests.
 - Phase 3: business backend with models + migration for customers, vendors, invoices, invoice lines, bills, bill lines, payments, tax rates, tax reserves, and closing periods; business CRUD/posting/payment flows; AR aging, AP aging, balance sheet, income statement, cash flow, dashboard, and closing checklist; tests.
 - Phase 4: ingestion backend slice with models + migration for import batches, document extractions, and extraction candidates; attachment-backed receipt upload; deterministic text receipt extraction for merchant/date/total with field confidence; candidate approval into draft journal entries; CSV import into `source_transactions`; signed download URL endpoint; tests.
-- Phase 5: web app now has protected route scaffolding, login, dashboard/personal/business/documents/settings/audit pages, shared shell/components, and placeholder route anchors for the deeper views. The current blocker is a Next.js prerender/runtime failure inside the container build (`docker compose exec -T web npm run build`) showing `TypeError: Cannot read properties of null (reading 'useContext')` during static page generation plus the built-in `/500` path complaining about `<Html>` outside `_document`. Treat this as an unresolved frontend build issue, not as finished Phase 5 acceptance.
+- Phase 5: web app has protected route scaffolding, login, dashboard/personal/business/documents/settings/audit pages, shared shell/components, and live data wiring for `/personal/budget`, `/personal/debts`, `/personal/goals`, `/personal/investments`, `/business/accounts`, `/business/invoices`, `/business/bills`, `/business/ledger`, `/business/reports`. The Next production build passes in-container (`docker compose exec -T -e NODE_ENV=production web npm run build`); the dev `web` container sets `NODE_ENV=development`, which `next build` must be overridden out of to avoid mixing dev/prod runtimes during prerender. The Dockerfile's `builder` stage pins `NODE_ENV=production`. Remaining placeholder routes (`/audit-log`, `/settings`) still need a list endpoint or settings model respectively; all wired pages are read-only — mutations still go through the API directly.
 - Phase 6: agent backend slice now exists with `app/api/agent.py`, `app/services/agent.py`, and `app/schemas/agent.py`; it provides an audited `/api/agent/chat` endpoint, typed tool registry, heuristic provider abstraction, policy/confirmation gates, and tests for personal-expense drafting/posting, business invoice drafting, balance-sheet explanation, and personal-vs-business comparison.
 - Phase 7: memory backend slice now exists with `app/models/memory.py`, `app/services/memory.py`, `app/schemas/memory.py`, `app/api/memory.py`, and migration `0005_memory.py`; it provides consent-gated durable memory creation, deterministic search, review/expire/forget flows, append-only memory events, deterministic embeddings metadata, and tests.
 - Phase 8: heartbeat backend slice now exists with `app/models/heartbeat.py`, `app/services/heartbeat.py`, `app/schemas/heartbeat.py`, `app/api/heartbeat.py`, migration `0006_heartbeat_ops.py`, and a scheduler hook in `services/scheduler/scheduler/main.py`; it provides persistent heartbeat runs, alerts, generated reports, manual run endpoints, token-protected internal scheduled execution, and tests.
@@ -220,7 +220,10 @@ Phase 5 status:
 * Current route coverage includes `/login`, `/dashboard`, `/personal`, `/business`, `/documents`, `/skills`, `/settings`, `/audit-log`, and placeholder anchors for budget/goals/debts/investments/accounts/ledger/invoices/bills/reports.
 * The app shell includes sidebar navigation, entity switcher, and logout flow.
 * `documents/page.tsx` uploads receipts and CSV files into Phase 4 endpoints.
-* The Next production build is currently failing in-container during prerender. Do not claim Phase 5 complete until `docker compose exec -T web npm run build` passes.
+* The Next production build passes in-container with `docker compose exec -T -e NODE_ENV=production web npm run build`. The `dev` web service runs with `NODE_ENV=development` (intended for `next dev`), so a build invocation must override the env. The Dockerfile's `builder` stage sets `NODE_ENV=production` so production image builds work without the override. The protected `(app)` layout renders `ProtectedShell` directly instead of wrapping it in `next/dynamic({ ssr: false })` — Next 14 disallows that from a Server Component.
+* Read-only pages now wired to live API data: `/personal/budget` (latest budget + actuals), `/personal/debts` (debt KPIs), `/personal/goals` (progress bars), `/personal/investments` (account/holding tables with the advisory disclaimer), `/business/accounts` (chart of accounts grouped by type), `/business/invoices`, `/business/bills` (overdue highlight), `/business/ledger` (recent journal entries with status chips), `/business/reports` (balance sheet, income statement, AR/AP aging). Typed fetchers and helpers live in `apps/web/app/_lib/api.ts`.
+* Alembic migrations 0003/0004/0005/0006/0008 use `postgresql.ENUM(..., create_type=False)` for column references and explicit `postgresql.ENUM(...).create(checkfirst=True)` for type creation — the previous `sa.Enum` + explicit-create pattern double-emitted CREATE TYPE inside the same transaction and broke fresh-install migrations.
+* `app/api/memory.py::forget_memory` now uses `response_class=Response` and returns `Response(status_code=204)` so FastAPI 0.115's body/status-code assertion is satisfied; previously the route blocked `app.main` from importing under uvicorn even though pytest passed (tests use `Base.metadata.create_all`, not the live app boot).
 
 Phase 6 status:
 * Agent route lives in `app/api/agent.py`; core service lives in `app/services/agent.py`; payloads live in `app/schemas/agent.py`.
@@ -256,7 +259,7 @@ Phase 9 status:
 * Built-in skills default to enabled; tenant-specific enable/disable state persists in `skill_states`.
 * Skill executions are persisted in `skill_run_logs` with inputs, outputs, declared permissions, version, entity/user scope, and result status.
 * Declared permissions are validated at load time and enforced by the built-in execution paths before they call finance, memory, document, or reporting services.
-* The web scaffold now includes `/skills`, which lists installed skills and their permissions/triggers. The broader Next production build blocker from Phase 5 still remains unresolved.
+* The web scaffold now includes `/skills`, which lists installed skills and their permissions/triggers.
 * Tests for the skills slice live in `apps/api/tests/test_skills.py`.
 
 Phase 10 status:
@@ -286,13 +289,15 @@ Phase 12 status:
 * Failed logins for known users also write normal audit logs with `action="login_failed"`.
 * The login route now enforces a simple rate limit based on recent failed attempts by email/IP before password verification continues.
 * API startup now installs `CORSMiddleware` using the `CORS_ALLOW_ORIGINS` setting.
-* This is only a first Phase 12 slice. Backup execution/restore verification, export auditing, and stronger cross-endpoint rate limits are still outstanding future work.
-* Tests for this slice live in `apps/api/tests/test_auth_security.py`.
+* The agent endpoint (`/api/agent/chat`) is rate-limited per-user via a window count over the existing prompt audit rows; tunable via `AGENT_RATE_LIMIT_WINDOW_SECONDS` and `AGENT_RATE_LIMIT_ATTEMPTS`. Exceeding the limit returns HTTP 429 with `code="agent_rate_limited"`.
+* Backup container now verifies every dump by restoring it into a throwaway database and asserting `journal_entries` exists; failed verifies delete the dump and exit non-zero. `infra/docker/backup/restore.sh` is the operator-driven restore helper, with `DROP_EXISTING`, `CREATE_DB`, and `ALLOW_DROP_LIVE` guards.
+* Export auditing and broader cross-endpoint rate limits (per-IP, per-tenant on hot paths beyond login/agent) are still outstanding.
+* Tests for this slice live in `apps/api/tests/test_auth_security.py` and `apps/api/tests/test_agent_core.py::test_agent_chat_is_rate_limited_per_user`.
 
 Phase 13 status:
 * End-to-end backend coverage lives in `apps/api/tests/test_e2e_flow.py`.
 * The test composes real phase services rather than mocking business logic: auth login, CSV import, receipt ingestion, candidate approval, journal posting, invoicing, payment recording, owner draws, personal budgeting, statements, heartbeat checks, weekly reports, and audit presence.
 * File storage is still mocked at the object-store boundary in this test, consistent with the existing ingestion tests; business logic and persistence still execute against the test database.
-* This is a backend/service-level end-to-end flow. The known unresolved Phase 5 web build issue still means there is not yet a full browser-level end-to-end story.
+* This is a backend/service-level end-to-end flow. The web app builds, but pages beyond dashboard/personal/business/documents/skills/login are still placeholder anchors, so there is not yet a full browser-level end-to-end story.
 
 Before recommending or running a Make target, prefer `make help` (it prints the live target list parsed from the `Makefile`) over trusting this table — the Makefile is authoritative.

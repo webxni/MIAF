@@ -45,6 +45,10 @@ class TenantIsolationError(ForbiddenError):
     """Raised when a query crosses tenant or entity scope. Always a bug."""
 
 
+class RateLimitError(FinClawError):
+    status_code = 429
+
+
 def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(FinClawError)
     async def _finclaw_handler(_: Request, exc: FinClawError) -> JSONResponse:

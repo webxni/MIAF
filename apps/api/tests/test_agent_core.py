@@ -8,6 +8,8 @@ import pytest
 from sqlalchemy import select
 
 from app.api.deps import CurrentUser
+from app.config import get_settings
+from app.errors import RateLimitError
 from app.models import AuditLog, Customer, Invoice, JournalEntry, JournalEntryStatus, Session, User
 from app.schemas.agent import AgentChatRequest
 from app.services.agent import AgentService
@@ -117,3 +119,20 @@ async def test_agent_compares_personal_and_business_summaries_and_audits(seeded,
 
     audits = (await db.execute(select(AuditLog).where(AuditLog.object_type.in_(["agent", "get_personal_summary", "get_business_summary"])))).scalars().all()
     assert audits
+
+
+async def test_agent_chat_is_rate_limited_per_user(seeded, db, monkeypatch):
+    service = AgentService()
+    me = await _current_user(db, seeded)
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "agent_rate_limit_attempts", 3)
+    monkeypatch.setattr(settings, "agent_rate_limit_window_seconds", 60)
+
+    for _ in range(3):
+        await service.chat(db, me=me, payload=AgentChatRequest(message="status"))
+
+    with pytest.raises(RateLimitError) as exc:
+        await service.chat(db, me=me, payload=AgentChatRequest(message="status"))
+    assert exc.value.code == "agent_rate_limited"
+    assert exc.value.status_code == 429

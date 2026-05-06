@@ -7,12 +7,14 @@ from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser
-from app.errors import FinClawError, NotFoundError
-from app.models import Account, Customer, Entity, EntityMember, EntityMode
+from app.config import get_settings
+from app.errors import FinClawError, NotFoundError, RateLimitError
+from app.models import Account, AuditLog, Customer, Entity, EntityMember, EntityMode
+from app.models.base import utcnow
 from app.schemas.agent import (
     AgentChatRequest,
     AgentChatResponse,
@@ -588,6 +590,35 @@ def build_tool_registry() -> ToolRegistry:
     return registry
 
 
+async def _check_agent_rate_limit(db: AsyncSession, *, user_id: uuid.UUID) -> None:
+    """Reject agent calls when a user exceeds the configured per-window quota.
+
+    Counts existing prompt audit rows for this user — those are written by the
+    agent on every call, so reusing them avoids a dedicated rate-limit table.
+    """
+    settings = get_settings()
+    since = utcnow() - timedelta(seconds=settings.agent_rate_limit_window_seconds)
+    recent = (
+        await db.execute(
+            select(func.count(AuditLog.id)).where(
+                AuditLog.user_id == user_id,
+                AuditLog.action == "prompt",
+                AuditLog.object_type == "agent",
+                AuditLog.created_at >= since,
+            )
+        )
+    ).scalar_one()
+    if recent >= settings.agent_rate_limit_attempts:
+        raise RateLimitError(
+            "Too many agent requests. Try again shortly.",
+            code="agent_rate_limited",
+            details={
+                "window_seconds": settings.agent_rate_limit_window_seconds,
+                "limit": settings.agent_rate_limit_attempts,
+            },
+        )
+
+
 class AgentService:
     def __init__(
         self,
@@ -610,6 +641,7 @@ class AgentService:
 
     async def chat(self, db: AsyncSession, *, me: CurrentUser, payload: AgentChatRequest) -> AgentChatResponse:
         ctx = ToolContext(db=db, me=me, request=payload)
+        await _check_agent_rate_limit(db, user_id=me.id)
         await self.audit_logger.log_prompt(ctx)
 
         provider = self.providers.get(payload.provider or "heuristic", self.providers["heuristic"])

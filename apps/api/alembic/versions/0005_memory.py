@@ -17,7 +17,7 @@ down_revision: Union[str, None] = "0004_ingestion_documents"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
-MEMORY_TYPE = sa.Enum(
+_MEMORY_TYPE_LABELS = (
     "user_profile",
     "personal_preference",
     "business_profile",
@@ -28,17 +28,23 @@ MEMORY_TYPE = sa.Enum(
     "risk_preference",
     "recurring_pattern",
     "advisor_note",
-    name="memory_type",
 )
-MEMORY_REVIEW_STATUS = sa.Enum("accepted", "needs_update", "archived", name="memory_review_status")
-MEMORY_EVENT_TYPE = sa.Enum("created", "updated", "accessed", "deleted", "expired", "reviewed", "promoted", name="memory_event_type")
+_MEMORY_REVIEW_STATUS_LABELS = ("accepted", "needs_update", "archived")
+_MEMORY_EVENT_TYPE_LABELS = ("created", "updated", "accessed", "deleted", "expired", "reviewed", "promoted")
+
+MEMORY_TYPE = postgresql.ENUM(*_MEMORY_TYPE_LABELS, name="memory_type", create_type=False)
+MEMORY_REVIEW_STATUS = postgresql.ENUM(*_MEMORY_REVIEW_STATUS_LABELS, name="memory_review_status", create_type=False)
+MEMORY_EVENT_TYPE = postgresql.ENUM(*_MEMORY_EVENT_TYPE_LABELS, name="memory_event_type", create_type=False)
+
+
+def _create_enum(name: str, *labels: str) -> None:
+    postgresql.ENUM(*labels, name=name).create(op.get_bind(), checkfirst=True)
 
 
 def upgrade() -> None:
-    bind = op.get_bind()
-    MEMORY_TYPE.create(bind, checkfirst=True)
-    MEMORY_REVIEW_STATUS.create(bind, checkfirst=True)
-    MEMORY_EVENT_TYPE.create(bind, checkfirst=True)
+    _create_enum("memory_type", *_MEMORY_TYPE_LABELS)
+    _create_enum("memory_review_status", *_MEMORY_REVIEW_STATUS_LABELS)
+    _create_enum("memory_event_type", *_MEMORY_EVENT_TYPE_LABELS)
 
     op.create_table(
         "memories",

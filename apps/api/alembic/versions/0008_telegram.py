@@ -19,14 +19,17 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    entity_mode = postgresql.ENUM("personal", "business", name="telegram_active_mode")
-    direction = postgresql.ENUM("inbound", "outbound", name="telegram_message_direction")
-    message_type = postgresql.ENUM("text", "image", "pdf", "voice", "command", "system", name="telegram_message_type")
-    message_status = postgresql.ENUM("processed", "rejected", "rate_limited", name="telegram_message_status")
-    entity_mode.create(op.get_bind(), checkfirst=True)
-    direction.create(op.get_bind(), checkfirst=True)
-    message_type.create(op.get_bind(), checkfirst=True)
-    message_status.create(op.get_bind(), checkfirst=True)
+    # Pass create_type=False on the column-bound types so SQLAlchemy doesn't
+    # also emit CREATE TYPE when the columns are added below — the explicit
+    # postgresql.ENUM(...).create(checkfirst=True) calls own creation.
+    entity_mode = postgresql.ENUM("personal", "business", name="telegram_active_mode", create_type=False)
+    direction = postgresql.ENUM("inbound", "outbound", name="telegram_message_direction", create_type=False)
+    message_type = postgresql.ENUM("text", "image", "pdf", "voice", "command", "system", name="telegram_message_type", create_type=False)
+    message_status = postgresql.ENUM("processed", "rejected", "rate_limited", name="telegram_message_status", create_type=False)
+    postgresql.ENUM("personal", "business", name="telegram_active_mode").create(op.get_bind(), checkfirst=True)
+    postgresql.ENUM("inbound", "outbound", name="telegram_message_direction").create(op.get_bind(), checkfirst=True)
+    postgresql.ENUM("text", "image", "pdf", "voice", "command", "system", name="telegram_message_type").create(op.get_bind(), checkfirst=True)
+    postgresql.ENUM("processed", "rejected", "rate_limited", name="telegram_message_status").create(op.get_bind(), checkfirst=True)
 
     op.create_table(
         "telegram_links",

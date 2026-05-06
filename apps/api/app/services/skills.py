@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import json
 import uuid
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Any, Literal
 
+import yaml
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -72,7 +72,9 @@ def load_skill_manifests() -> list[LoadedSkill]:
     if skills_root is None:
         return loaded
     for manifest_path in sorted(skills_root.glob("*/SKILL.yaml")):
-        data = json.loads(manifest_path.read_text())
+        # JSON is a subset of YAML, so existing JSON-formatted manifests still
+        # parse fine. Future skills can use plain YAML if they prefer.
+        data = yaml.safe_load(manifest_path.read_text())
         manifest = SkillManifest.model_validate(data)
         unknown = set(manifest.permissions) - _ALLOWED_PERMISSIONS
         if unknown:

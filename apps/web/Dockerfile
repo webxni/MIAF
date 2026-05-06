@@ -27,6 +27,7 @@ CMD ["npm", "run", "dev"]
 
 # --- builder stage -----------------------------------------------------------
 FROM base AS builder
+ENV NODE_ENV=production
 COPY --from=deps /srv/web/node_modules ./node_modules
 COPY . .
 RUN npm run build

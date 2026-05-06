@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Phase 0 backup loop: dump once at startup, then every 24h.
-# Phase 12 will replace this with a proper cron schedule and restore tooling.
+# Backup loop: dump once at startup, then every BACKUP_INTERVAL_SECONDS.
+# Each dump is verified by restoring into a throwaway database before the
+# loop sleeps; failed verifies delete the dump and exit the iteration with
+# an error. See restore.sh for the operator-driven restore path.
 
 INTERVAL_SECONDS="${BACKUP_INTERVAL_SECONDS:-86400}"
 

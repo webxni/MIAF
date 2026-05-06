@@ -8,9 +8,10 @@ RUN addgroup -S backup && adduser -S -G backup backup \
  && mkdir -p /backups \
  && chown backup:backup /backups
 
-COPY backup.sh    /usr/local/bin/backup.sh
+COPY backup.sh     /usr/local/bin/backup.sh
+COPY restore.sh    /usr/local/bin/restore.sh
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/backup.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/backup.sh /usr/local/bin/restore.sh /usr/local/bin/entrypoint.sh
 
 USER backup
 WORKDIR /backups

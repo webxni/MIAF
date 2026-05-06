@@ -7,6 +7,7 @@ set -euo pipefail
 : "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}"
 : "${POSTGRES_DB:?POSTGRES_DB is required}"
 : "${BACKUP_RETENTION_DAYS:=7}"
+: "${BACKUP_VERIFY:=1}"
 
 ts="$(date -u +%Y%m%dT%H%M%SZ)"
 out="/backups/finclaw_${ts}.sql.gz"
@@ -21,7 +22,49 @@ PGPASSWORD="$POSTGRES_PASSWORD" pg_dump \
   --no-owner --no-privileges --format=plain \
   | gzip -9 > "$out"
 
-echo "[backup] wrote $(stat -c '%s' "$out") bytes"
+bytes="$(stat -c '%s' "$out")"
+echo "[backup] wrote ${bytes} bytes"
+
+if [ "$BACKUP_VERIFY" = "1" ]; then
+  verify_db="finclaw_verify_${ts}"
+  echo "[backup] verifying restore into temporary database ${verify_db}"
+
+  cleanup() {
+    PGPASSWORD="$POSTGRES_PASSWORD" psql \
+      -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" \
+      -d postgres -X -q -v ON_ERROR_STOP=1 \
+      -c "DROP DATABASE IF EXISTS \"${verify_db}\";" >/dev/null 2>&1 || true
+  }
+  trap cleanup EXIT
+
+  PGPASSWORD="$POSTGRES_PASSWORD" psql \
+    -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" \
+    -d postgres -X -q -v ON_ERROR_STOP=1 \
+    -c "CREATE DATABASE \"${verify_db}\";"
+
+  if ! gunzip -c "$out" | PGPASSWORD="$POSTGRES_PASSWORD" psql \
+        -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" \
+        -d "${verify_db}" -X -q -v ON_ERROR_STOP=1 >/dev/null; then
+    echo "[backup] VERIFY FAILED: restore raised an error" >&2
+    rm -f "$out"
+    exit 1
+  fi
+
+  # Sanity-check that a core table is present and queryable. journal_entries is
+  # the ledger spine; if it's missing or unreadable the dump is useless.
+  table_count="$(PGPASSWORD="$POSTGRES_PASSWORD" psql \
+        -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" \
+        -d "${verify_db}" -X -q -t -A -v ON_ERROR_STOP=1 \
+        -c "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name='journal_entries';" \
+        2>/dev/null || echo "0")"
+  if [ "$table_count" != "1" ]; then
+    echo "[backup] VERIFY FAILED: journal_entries table missing in restored dump" >&2
+    rm -f "$out"
+    exit 1
+  fi
+
+  echo "[backup] verify ok (journal_entries present)"
+fi
 
 echo "[backup] pruning backups older than ${BACKUP_RETENTION_DAYS} days"
 find /backups -maxdepth 1 -type f -name 'finclaw_*.sql.gz' \

@@ -17,7 +17,7 @@ down_revision: Union[str, None] = "0005_memory"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
-HEARTBEAT_TYPE = sa.Enum(
+_HEARTBEAT_TYPE_LABELS = (
     "daily_personal_check",
     "weekly_personal_report",
     "monthly_personal_close",
@@ -28,21 +28,29 @@ HEARTBEAT_TYPE = sa.Enum(
     "cash_runway_check",
     "budget_overspend_check",
     "ar_ap_aging_check",
-    name="heartbeat_type",
 )
-HEARTBEAT_RUN_STATUS = sa.Enum("running", "completed", "failed", name="heartbeat_run_status")
-ALERT_SEVERITY = sa.Enum("info", "warning", "critical", name="alert_severity")
-ALERT_STATUS = sa.Enum("open", "resolved", "dismissed", name="alert_status")
-REPORT_KIND = sa.Enum("weekly_business_report", "weekly_personal_report", name="report_kind")
+_HEARTBEAT_RUN_STATUS_LABELS = ("running", "completed", "failed")
+_ALERT_SEVERITY_LABELS = ("info", "warning", "critical")
+_ALERT_STATUS_LABELS = ("open", "resolved", "dismissed")
+_REPORT_KIND_LABELS = ("weekly_business_report", "weekly_personal_report")
+
+HEARTBEAT_TYPE = postgresql.ENUM(*_HEARTBEAT_TYPE_LABELS, name="heartbeat_type", create_type=False)
+HEARTBEAT_RUN_STATUS = postgresql.ENUM(*_HEARTBEAT_RUN_STATUS_LABELS, name="heartbeat_run_status", create_type=False)
+ALERT_SEVERITY = postgresql.ENUM(*_ALERT_SEVERITY_LABELS, name="alert_severity", create_type=False)
+ALERT_STATUS = postgresql.ENUM(*_ALERT_STATUS_LABELS, name="alert_status", create_type=False)
+REPORT_KIND = postgresql.ENUM(*_REPORT_KIND_LABELS, name="report_kind", create_type=False)
+
+
+def _create_enum(name: str, *labels: str) -> None:
+    postgresql.ENUM(*labels, name=name).create(op.get_bind(), checkfirst=True)
 
 
 def upgrade() -> None:
-    bind = op.get_bind()
-    HEARTBEAT_TYPE.create(bind, checkfirst=True)
-    HEARTBEAT_RUN_STATUS.create(bind, checkfirst=True)
-    ALERT_SEVERITY.create(bind, checkfirst=True)
-    ALERT_STATUS.create(bind, checkfirst=True)
-    REPORT_KIND.create(bind, checkfirst=True)
+    _create_enum("heartbeat_type", *_HEARTBEAT_TYPE_LABELS)
+    _create_enum("heartbeat_run_status", *_HEARTBEAT_RUN_STATUS_LABELS)
+    _create_enum("alert_severity", *_ALERT_SEVERITY_LABELS)
+    _create_enum("alert_status", *_ALERT_STATUS_LABELS)
+    _create_enum("report_kind", *_REPORT_KIND_LABELS)
 
     op.create_table(
         "heartbeat_runs",

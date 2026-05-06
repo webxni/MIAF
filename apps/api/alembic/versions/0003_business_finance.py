@@ -17,15 +17,34 @@ down_revision: Union[str, None] = "0002_personal_finance"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
-BUSINESS_DOCUMENT_STATUS = sa.Enum("draft", "posted", "partial", "paid", "voided", name="business_document_status")
-PAYMENT_KIND = sa.Enum("customer_receipt", "vendor_payment", name="payment_kind")
-CLOSING_PERIOD_STATUS = sa.Enum("open", "soft_closed", "closed", name="closing_period_status")
+BUSINESS_DOCUMENT_STATUS = postgresql.ENUM(
+    "draft", "posted", "partial", "paid", "voided",
+    name="business_document_status",
+    create_type=False,
+)
+PAYMENT_KIND = postgresql.ENUM(
+    "customer_receipt", "vendor_payment",
+    name="payment_kind",
+    create_type=False,
+)
+CLOSING_PERIOD_STATUS = postgresql.ENUM(
+    "open", "soft_closed", "closed",
+    name="closing_period_status",
+    create_type=False,
+)
+
+
+# Helper that emits a real CREATE TYPE through the live bind, with checkfirst.
+# We can't use the Enum object's own .create() with create_type=False because
+# that flag is checked at .create() time too — this preserves explicit creation.
+def _create_enum(name: str, *labels: str) -> None:
+    postgresql.ENUM(*labels, name=name).create(op.get_bind(), checkfirst=True)
 
 
 def upgrade() -> None:
-    BUSINESS_DOCUMENT_STATUS.create(op.get_bind(), checkfirst=True)
-    PAYMENT_KIND.create(op.get_bind(), checkfirst=True)
-    CLOSING_PERIOD_STATUS.create(op.get_bind(), checkfirst=True)
+    _create_enum("business_document_status", "draft", "posted", "partial", "paid", "voided")
+    _create_enum("payment_kind", "customer_receipt", "vendor_payment")
+    _create_enum("closing_period_status", "open", "soft_closed", "closed")
 
     op.create_table("customers",
         sa.Column("id", postgresql.UUID(as_uuid=True), server_default=sa.text("gen_random_uuid()"), primary_key=True),
