@@ -1,15 +1,18 @@
 from __future__ import annotations
 
-from sqlalchemy import select
-from fastapi import APIRouter, Response, status
+import uuid
+from typing import Annotated
 
-from app.api.deps import DB, CurrentUserDep, RequestCtx
+from fastapi import APIRouter, Depends, Response, status
+from sqlalchemy import select
+
+from app.api.deps import DB, CurrentUser, CurrentUserDep, RequestCtx, require_tenant_admin_or_owner
 from app.config import get_settings
 from app.core.brand import SHORT_NAME
 from app.errors import AuthError, ConflictError
 from app.models import EntityMode, Tenant, User
 from app.schemas.auth import LoginRequest, PasswordChangeRequest, RegisterOwnerRequest, UserOut
-from app.services.entities import create_entity
+from app.schemas.invite import AcceptInviteRequest, InviteCreate, InviteOut
 from app.services.audit import write_audit
 from app.services.auth import (
     authenticate_user,
@@ -19,6 +22,13 @@ from app.services.auth import (
     record_login_attempt,
     revoke_all_sessions,
     revoke_session,
+)
+from app.services.entities import create_entity
+from app.services.invite import (
+    accept_invite,
+    create_invite,
+    list_invites,
+    revoke_invite,
 )
 from app.services.seed import create_default_chart_of_accounts
 from app.security import hash_password, verify_password
@@ -241,3 +251,91 @@ async def revoke_all_my_sessions(
         user_agent=ctx.user_agent,
     )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# ── Team invites ──────────────────────────────────────────────────────────────
+
+@router.post("/invites", response_model=InviteOut, status_code=status.HTTP_201_CREATED)
+async def create_invite_endpoint(
+    payload: InviteCreate,
+    db: DB,
+    me: Annotated[CurrentUser, Depends(require_tenant_admin_or_owner)],
+    ctx: RequestCtx,
+) -> InviteOut:
+    invite = await create_invite(
+        db,
+        tenant_id=me.tenant_id,
+        inviter_id=me.id,
+        email=payload.email,
+        role=payload.role,
+    )
+    await write_audit(
+        db,
+        tenant_id=me.tenant_id,
+        user_id=me.id,
+        entity_id=None,
+        action="create_invite",
+        object_type="invite",
+        object_id=invite.id,
+        after={"email": invite.email, "role": invite.role, "expires_at": invite.expires_at.isoformat()},
+        ip=ctx.ip,
+        user_agent=ctx.user_agent,
+    )
+    return InviteOut.model_validate(invite)
+
+
+@router.get("/invites", response_model=list[InviteOut])
+async def list_invites_endpoint(
+    db: DB,
+    me: Annotated[CurrentUser, Depends(require_tenant_admin_or_owner)],
+) -> list[InviteOut]:
+    invites = await list_invites(db, tenant_id=me.tenant_id)
+    return [InviteOut.model_validate(inv) for inv in invites]
+
+
+@router.delete("/invites/{invite_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
+async def revoke_invite_endpoint(
+    invite_id: uuid.UUID,
+    db: DB,
+    me: Annotated[CurrentUser, Depends(require_tenant_admin_or_owner)],
+    ctx: RequestCtx,
+) -> Response:
+    invite = await revoke_invite(db, invite_id=invite_id, tenant_id=me.tenant_id)
+    await write_audit(
+        db,
+        tenant_id=me.tenant_id,
+        user_id=me.id,
+        entity_id=None,
+        action="revoke_invite",
+        object_type="invite",
+        object_id=invite.id,
+        after={"email": invite.email},
+        ip=ctx.ip,
+        user_agent=ctx.user_agent,
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/accept-invite", response_model=UserOut)
+async def accept_invite_endpoint(
+    payload: AcceptInviteRequest,
+    response: Response,
+    db: DB,
+    ctx: RequestCtx,
+) -> UserOut:
+    user = await accept_invite(db, token=payload.token, name=payload.name, password=payload.password)
+    session, token = await create_session(db, user, ip=ctx.ip, user_agent=ctx.user_agent)
+    _set_session_cookie(response, token)
+    await write_audit(
+        db,
+        tenant_id=user.tenant_id,
+        user_id=user.id,
+        entity_id=None,
+        action="accept_invite",
+        object_type="user",
+        object_id=user.id,
+        after={"email": user.email, "name": user.name},
+        ip=ctx.ip,
+        user_agent=ctx.user_agent,
+    )
+    return UserOut.model_validate(user)

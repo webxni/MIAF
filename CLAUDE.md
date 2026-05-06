@@ -22,6 +22,7 @@ This repo is active and already has Phases 0, 1, 2, 3, 4, an initial Phase 5 web
 - Phase 13: a composed end-to-end backend demo flow now exists in pytest, covering login, CSV import, receipt ingestion and approval, customer invoice posting and payment, vendor bill posting, owner-draw linkage across business and personal entities, report refresh, heartbeat alerting, weekly reporting, and audit-log presence.
 - Wave 5.3: agent real tool implementations (create_bill, create_budget, create_goal, create_debt_plan, record_invoice_payment, record_bill_payment), memory auto-injection into LLM context, Gemini fallback disclaimer, auth security (PUT /auth/password, POST /auth/revoke-all-sessions), MiniChart inline-SVG frontend component, skill run log table, SkillPlanner INTENT_PLANS expanded for budget/goal/debt/bill tools.
 - Wave 5.4: export auditing (all report GET endpoints now write action="report_viewed" audit rows), CSV export endpoints (GET /ledger/export.csv, /trial-balance/export.csv, /business/reports/balance-sheet/export.csv, /income-statement/export.csv, /ar-aging/export.csv, /ap-aging/export.csv, /revenue-by-customer/export.csv, /expenses-by-vendor/export.csv; /personal/reports/net-worth/export.csv), Redis-backed per-IP rate limiting middleware on auth+agent hot paths (IPRateLimitMiddleware), configurable via IP_RATE_LIMIT_WINDOW_SECONDS / IP_RATE_LIMIT_REQUESTS env vars.
+- Wave 5.5: multi-user invite flow — `InviteToken` model + migration `0013_invite_tokens.py`; invite service with deduplication, accept flow (creates user + entity memberships for all tenant entities), revoke; POST /auth/invites (owner/admin only), GET /auth/invites, DELETE /auth/invites/{id}, POST /auth/accept-invite (public); audit rows for create_invite / accept_invite / revoke_invite; 13 tests.
 
 Treat `MIAF.md` as the product contract and this file as the current repo-state memo. Do not assume the repo is empty.
 
@@ -116,6 +117,12 @@ API surface (Phases 1-6 backend):
 * `POST /api/auth/login` `{email, password}` → sets httpOnly `miaf_session` cookie.
 * `POST /api/auth/register-owner` `{name, email, password}` → first-run only owner bootstrap; creates tenant + personal/business entities + default COAs and sets the same session cookie.
 * `POST /api/auth/logout`, `GET /api/auth/me`.
+* `PUT /api/auth/password` — change password (current + new, min 12 chars).
+* `POST /api/auth/revoke-all-sessions` — clears all sessions + cookie.
+* `POST /api/auth/invites` — create invite (owner/admin only; returns token URL).
+* `GET /api/auth/invites` — list tenant invites (owner/admin only).
+* `DELETE /api/auth/invites/{id}` — revoke pending invite.
+* `POST /api/auth/accept-invite` — public; accepts token, creates user + session.
 * `GET/PUT /api/settings`.
 * `GET/POST /api/entities`, `GET/PATCH /api/entities/{id}`.
 * `GET/POST/PATCH/DELETE /api/entities/{id}/accounts[/{id}]`.

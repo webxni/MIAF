@@ -65,6 +65,7 @@ from app.models.memory import (
     MemoryType,
 )
 from app.models.net_worth import NetWorthSnapshot
+from app.models.invite import InviteToken
 from app.models.security import LoginAttempt
 from app.models.session import Session
 from app.models.skill import SkillRunLog, SkillState
@@ -117,6 +118,7 @@ __all__ = [
     "InvestmentAccountKind",
     "InvestmentHolding",
     "Invoice",
+    "InviteToken",
     "InvoiceLine",
     "JournalEntry",
     "JournalEntryStatus",
