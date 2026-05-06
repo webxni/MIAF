@@ -18,6 +18,7 @@ from app.api.memory import router as memory_router
 from app.api.personal import router as personal_router
 from app.api.skills import router as skills_router
 from app.api.telegram import router as telegram_router
+from app.api.user_settings import router as user_settings_router
 from app.config import get_settings
 from app.errors import install_error_handlers
 from app.health import router as health_router
@@ -50,7 +51,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_allow_origins_list,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -71,6 +72,7 @@ app.include_router(heartbeat_router)
 app.include_router(internal_heartbeat_router)
 app.include_router(skills_router)
 app.include_router(telegram_router)
+app.include_router(user_settings_router)
 
 
 @app.get("/", tags=["meta"])

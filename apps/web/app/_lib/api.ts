@@ -50,6 +50,33 @@ export type SkillManifest = {
   enabled: boolean;
 };
 
+export type AIProvider = "heuristic" | "anthropic" | "openai" | "gemini";
+
+export type UserSettings = {
+  id: string;
+  user_id: string;
+  tenant_id: string;
+  jurisdiction: string | null;
+  base_currency: string | null;
+  fiscal_year_start_month: number | null;
+  ai_provider: AIProvider | null;
+  ai_model: string | null;
+  ai_api_key_hint: string | null;
+  ai_api_key_present: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type UserSettingsUpdatePayload = {
+  jurisdiction?: string | null;
+  base_currency?: string | null;
+  fiscal_year_start_month?: number | null;
+  ai_provider?: AIProvider | null;
+  ai_model?: string | null;
+  ai_api_key?: string | null;
+  ai_api_key_clear?: boolean;
+};
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "/api";
 
 async function parseError(res: Response): Promise<ApiRequestError> {
@@ -104,6 +131,17 @@ export async function logout(): Promise<void> {
 
 export async function me(): Promise<User> {
   return apiFetch<User>("/auth/me");
+}
+
+export async function getSettings(): Promise<UserSettings> {
+  return apiFetch<UserSettings>("/settings");
+}
+
+export async function updateSettings(payload: UserSettingsUpdatePayload): Promise<UserSettings> {
+  return apiFetch<UserSettings>("/settings", {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
 }
 
 export async function entities(): Promise<Entity[]> {

@@ -21,6 +21,8 @@ _REDACT_KEYS = {
     "secret",
     "secret_key",
     "api_key",
+    "ai_api_key",
+    "ai_api_key_encrypted",
     "authorization",
     "cookie",
 }

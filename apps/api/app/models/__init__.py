@@ -78,6 +78,7 @@ from app.models.telegram import (
     TelegramMessageType,
 )
 from app.models.user import User
+from app.models.user_settings import UserSettings
 
 __all__ = [
     "Account",
@@ -152,5 +153,6 @@ __all__ = [
     "TelegramMessageStatus",
     "TelegramMessageType",
     "User",
+    "UserSettings",
     "Vendor",
 ]
