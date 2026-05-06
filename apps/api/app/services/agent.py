@@ -14,6 +14,11 @@ try:
     import anthropic
 except ImportError:  # pragma: no cover - exercised only when dependency is absent
     anthropic = None
+
+try:
+    import openai as _openai_sdk
+except ImportError:  # pragma: no cover
+    _openai_sdk = None
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,25 +28,34 @@ from app.errors import FinClawError, NotFoundError, RateLimitError
 from app.models import Account, AuditLog, Customer, Entity, EntityMember, EntityMode
 from app.models.base import utcnow
 from app.schemas.agent import (
+    AccountingQuestionArgs,
     AgentChatRequest,
     AgentChatResponse,
     AgentToolCallOut,
     AnalyzeSpendingArgs,
+    AnomalyRecordsArgs,
+    BudgetVarianceArgs,
     CashFlowArgs,
+    ChartDataArgs,
     CheckFinancialHealthArgs,
     CreateInvoiceArgs,
     CreateJournalEntryDraftArgs,
     CreatePersonalExpenseArgs,
     ExplainTransactionArgs,
+    JournalLinesArgs,
     MemoryArgs,
+    MoneyMeetingContextArgs,
     PendingConfirmationOut,
     PostJournalEntryArgs,
+    ReturnsListArgs,
+    RoomForErrorArgs,
     SimulateGoalArgs,
     StatementArgs,
     SuggestEmergencyFundPlanArgs,
     SuggestInvestmentAllocationArgs,
     SummaryArgs,
     ToolConfirmationIn,
+    TransactionsListArgs,
     ValidateJournalArgs,
 )
 from app.schemas.business import CustomerCreate, InvoiceCreate
@@ -74,6 +88,7 @@ _DISCLAIMER_RE = re.compile(r"^\s*disclaimer\s*:\s*(.+)$", re.IGNORECASE)
 log = logging.getLogger(__name__)
 
 DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-6"
+DEFAULT_OPENAI_MODEL = "gpt-4o"
 _TOOL_DESCRIPTIONS: dict[str, str] = {
     "create_journal_entry_draft": "Create a draft journal entry from explicit double-entry lines.",
     "post_journal_entry": "Post an existing draft journal entry after confirmation.",
@@ -101,6 +116,17 @@ _TOOL_DESCRIPTIONS: dict[str, str] = {
     "check_financial_health": "Score the user's personal margin of safety and identify cashflow risks.",
     "simulate_financial_goal": "Run a Monte Carlo simulation for a savings or investment goal.",
     "validate_journal_entry_structure": "Validate that a journal entry draft is balanced and structurally correct.",
+    "generate_income_statement_data": "Generate a deterministic income statement from raw journal lines and accounts.",
+    "generate_balance_sheet_data": "Generate a deterministic balance sheet snapshot from raw journal lines and accounts.",
+    "generate_trial_balance_data": "Generate a trial balance and verify debit/credit equality.",
+    "analyze_personal_cashflow": "Calculate personal income, expenses, net cashflow, and savings rate from a transaction list.",
+    "analyze_budget_variance": "Calculate budget vs actuals variance and flag overspent categories.",
+    "check_room_for_error": "Score personal financial margin of safety: emergency fund, debt ratio, business dependency.",
+    "analyze_portfolio_risk": "Calculate historical risk metrics (VaR, drawdown, volatility) for a return series.",
+    "detect_financial_anomalies": "Detect unusually large or small amounts in financial records using z-score analysis.",
+    "generate_chart_data": "Convert financial data rows into dashboard-ready chart JSON (line, bar, pie, multi-line).",
+    "build_money_meeting_agenda": "Build a weekly money review agenda tailored to the user's active financial context.",
+    "create_accounting_question": "Generate a structured accounting question for an ambiguous transaction.",
 }
 
 
@@ -151,6 +177,7 @@ class LLMProvider:
         *,
         api_key: str | None = None,
         model: str | None = None,
+        suggested_tools: list[str] | None = None,
     ) -> tuple[str, list[PlannedToolCall], list[str]]:
         raise NotImplementedError
 
@@ -164,6 +191,7 @@ class HeuristicProvider(LLMProvider):
         *,
         api_key: str | None = None,
         model: str | None = None,
+        suggested_tools: list[str] | None = None,
     ) -> tuple[str, list[PlannedToolCall], list[str]]:
         text = request.message.strip()
         lower = text.lower()
@@ -258,8 +286,87 @@ class HeuristicProvider(LLMProvider):
         return "I could not map that request to a supported financial tool yet.", [], []
 
 
-class OpenAIProvider(HeuristicProvider):
+def _tool_to_openai_schema(tool: "Tool") -> dict[str, Any]:
+    return {
+        "type": "function",
+        "function": {
+            "name": tool.name,
+            "description": tool.description,
+            "parameters": tool.args_model.model_json_schema(),
+        },
+    }
+
+
+class OpenAIProvider(LLMProvider):
     name = "openai"
+
+    def __init__(self, *, tool_registry: "ToolRegistry | None" = None) -> None:
+        self._env_api_key = os.getenv("OPENAI_API_KEY")
+        self._fallback = HeuristicProvider()
+        self._tool_registry = tool_registry or None  # set lazily in AgentService
+
+    async def plan(
+        self,
+        request: AgentChatRequest,
+        *,
+        api_key: str | None = None,
+        model: str | None = None,
+        suggested_tools: list[str] | None = None,
+    ) -> tuple[str, list[PlannedToolCall], list[str]]:
+        key = api_key or self._env_api_key
+        registry = self._tool_registry or build_tool_registry()
+
+        if not key or _openai_sdk is None:
+            if key and _openai_sdk is None:
+                log.warning("openai SDK unavailable; falling back to heuristic provider")
+            return await self._fallback.plan(request)
+
+        tools = [_tool_to_openai_schema(tool) for tool in registry.list_tools()]
+        system_parts = [
+            "You are FinClaw, an accounting-first financial agent.",
+            "Use the provided tools to answer finance questions deterministically.",
+            "Never invent numbers. Only tool outputs provide figures.",
+        ]
+        if suggested_tools:
+            system_parts.append(
+                f"Suggested tools for this request (in order): {', '.join(suggested_tools)}. "
+                "Use them if appropriate — you are not required to."
+            )
+        system = " ".join(system_parts)
+        try:
+            client = _openai_sdk.OpenAI(api_key=key)
+            response = client.chat.completions.create(
+                model=model or DEFAULT_OPENAI_MODEL,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": request.message},
+                ],
+                tools=tools,
+                tool_choice="auto",
+                max_tokens=1024,
+            )
+        except Exception:
+            log.warning("OpenAI planning failed; falling back to heuristic provider", exc_info=True)
+            return await self._fallback.plan(request)
+
+        planned_calls: list[PlannedToolCall] = []
+        text_parts: list[str] = []
+        choice = response.choices[0] if response.choices else None
+        if choice is None:
+            return "", [], []
+
+        msg = choice.message
+        if msg.content:
+            text_parts.append(msg.content.strip())
+
+        for tc in msg.tool_calls or []:
+            try:
+                args = json.loads(tc.function.arguments) if tc.function.arguments else {}
+            except json.JSONDecodeError:
+                args = {}
+            planned_calls.append(PlannedToolCall(tool_name=tc.function.name, arguments=args))
+
+        return " ".join(text_parts).strip(), planned_calls, []
 
 
 def _content_block_value(block: Any, field: str, default: Any = None) -> Any:
@@ -290,6 +397,7 @@ class AnthropicProvider(LLMProvider):
         *,
         api_key: str | None = None,
         model: str | None = None,
+        suggested_tools: list[str] | None = None,
     ) -> tuple[str, list[PlannedToolCall], list[str]]:
         key = api_key or self._env_api_key
         if not key or anthropic is None:
@@ -302,17 +410,21 @@ class AnthropicProvider(LLMProvider):
             f"- {tool.name}: {tool.description} Schema: {json.dumps(tool.args_model.model_json_schema(), sort_keys=True)}"
             for tool in self._tool_registry.list_tools()
         ]
-        system = "\n".join(
-            [
-                "You are FinClaw, an accounting-first financial agent.",
-                "You may classify, draft journal entries, explain reports, and plan tool calls.",
-                "You MUST NOT invent numbers. Only deterministic backend tool outputs are allowed to provide figures.",
-                "Use typed tools when a request needs financial data, drafts, or calculations.",
-                "Confirmation gates apply to posting and payment tools. Do not bypass them.",
-                "Available tools:",
-                *tool_lines,
-            ]
-        )
+        system_lines = [
+            "You are FinClaw, an accounting-first financial agent.",
+            "You may classify, draft journal entries, explain reports, and plan tool calls.",
+            "You MUST NOT invent numbers. Only deterministic backend tool outputs are allowed to provide figures.",
+            "Use typed tools when a request needs financial data, drafts, or calculations.",
+            "Confirmation gates apply to posting and payment tools. Do not bypass them.",
+            "Available tools:",
+            *tool_lines,
+        ]
+        if suggested_tools:
+            system_lines.append(
+                f"Suggested tools for this request (in order): {', '.join(suggested_tools)}. "
+                "Use them if appropriate — you are not required to."
+            )
+        system = "\n".join(system_lines)
 
         try:
             client = anthropic.Anthropic(api_key=key)
@@ -367,7 +479,12 @@ class PolicyEngine:
 
 
 class ConfirmationEngine:
-    _sensitive = {"post_journal_entry", "record_invoice_payment", "record_bill_payment"}
+    _sensitive = {
+        "post_journal_entry",
+        "create_invoice",
+        "record_invoice_payment",
+        "record_bill_payment",
+    }
 
     def requires_confirmation(self, tool_name: str) -> bool:
         return tool_name in self._sensitive
@@ -788,6 +905,133 @@ async def _tool_validate_journal_entry_structure(ctx: ToolContext, args: Validat
     return validate_journal_entry({"lines": args.lines})
 
 
+# ── 11 skill-backed analytics tools (read-only, no confirmation needed) ──────
+
+async def _tool_generate_income_statement_data(ctx: ToolContext, args: JournalLinesArgs) -> dict[str, Any]:
+    from app.skills.accounting.ledger.financial_statements import generate_income_statement
+    return generate_income_statement(args.journal_lines, args.accounts)
+
+
+async def _tool_generate_balance_sheet_data(ctx: ToolContext, args: JournalLinesArgs) -> dict[str, Any]:
+    from app.skills.accounting.ledger.financial_statements import generate_balance_sheet
+    return generate_balance_sheet(args.journal_lines, args.accounts)
+
+
+async def _tool_generate_trial_balance_data(ctx: ToolContext, args: JournalLinesArgs) -> dict[str, Any]:
+    from app.skills.accounting.ledger.trial_balance import generate_trial_balance
+    return generate_trial_balance(args.journal_lines, args.accounts)
+
+
+async def _tool_analyze_personal_cashflow(ctx: ToolContext, args: TransactionsListArgs) -> dict[str, Any]:
+    from app.skills.personal_finance.calculations.cashflow import calculate_personal_cashflow
+    return calculate_personal_cashflow(args.transactions)
+
+
+async def _tool_analyze_budget_variance(ctx: ToolContext, args: BudgetVarianceArgs) -> dict[str, Any]:
+    from app.skills.personal_finance.calculations.budget import budget_variance
+    return budget_variance(args.budget_lines, args.actual_by_category)
+
+
+async def _tool_check_room_for_error(ctx: ToolContext, args: RoomForErrorArgs) -> dict[str, Any]:
+    from app.skills.personal_finance.calculations.room_for_error import calculate_room_for_error_score
+    result = calculate_room_for_error_score(args.profile)
+    if result.get("risk_level") in {"medium", "high"}:
+        result["memory_suggestion"] = {
+            "type": "behavioral_observation",
+            "content": f"Room-for-error score: {result['score']}/100 ({result['risk_level']} risk). Issues: {'; '.join(result.get('issues', []))}",
+        }
+    return result
+
+
+async def _tool_analyze_portfolio_risk(ctx: ToolContext, args: ReturnsListArgs) -> dict[str, Any]:
+    from app.skills.python_finance.analytics.risk import calculate_risk_metrics
+    result = calculate_risk_metrics(args.returns, confidence_level=args.confidence_level)
+    result.setdefault("disclaimer", "Educational risk analysis only. Not investment advice.")
+    return result
+
+
+async def _tool_detect_financial_anomalies(ctx: ToolContext, args: AnomalyRecordsArgs) -> dict[str, Any]:
+    from app.skills.python_finance.analytics.anomalies import detect_amount_anomalies
+    result = detect_amount_anomalies(args.records, group_col=args.group_col, z_threshold=args.z_threshold)
+    if result.get("anomalies"):
+        result["memory_suggestion"] = {
+            "type": "behavioral_observation",
+            "content": f"Detected {len(result['anomalies'])} anomalous transaction(s). Review suggested.",
+        }
+    return result
+
+
+async def _tool_generate_chart_data(ctx: ToolContext, args: ChartDataArgs) -> dict[str, Any]:
+    from app.skills.python_finance.visualization.chart_data import generate_chart
+    return generate_chart(
+        chart_type=args.chart_type,
+        title=args.title,
+        rows=args.rows,
+        x_key=args.x_key,
+        y_key=args.y_key,
+        label_key=args.label_key,
+        value_key=args.value_key,
+    )
+
+
+async def _tool_build_money_meeting_agenda(ctx: ToolContext, args: MoneyMeetingContextArgs) -> dict[str, Any]:
+    from app.skills.personal_finance.meetings.weekly_money_meeting import build_weekly_money_meeting_agenda
+    return build_weekly_money_meeting_agenda(args.context)
+
+
+async def _tool_create_accounting_question(ctx: ToolContext, args: AccountingQuestionArgs) -> dict[str, Any]:
+    from app.skills.accounting.workflows.questions import generate_accounting_question
+    return generate_accounting_question(args.record, args.reason_codes)
+
+
+class SkillPlanner:
+    """Maps high-level message intent to an ordered list of suggested tool names.
+
+    The planner injects hints into the system prompt so the LLM can decide
+    whether to use them; it does NOT auto-execute tools.
+    """
+
+    INTENT_PLANS: dict[str, list[str]] = {
+        "income statement": ["generate_income_statement_data", "get_income_statement"],
+        "balance sheet": ["generate_balance_sheet_data", "get_balance_sheet"],
+        "trial balance": ["generate_trial_balance_data"],
+        "cash flow": ["analyze_personal_cashflow", "get_cash_flow"],
+        "budget": ["analyze_budget_variance", "get_personal_summary"],
+        "anomaly": ["detect_financial_anomalies"],
+        "anomalies": ["detect_financial_anomalies"],
+        "unusual": ["detect_financial_anomalies"],
+        "emergency fund": ["suggest_emergency_fund_plan", "check_room_for_error"],
+        "room for error": ["check_room_for_error"],
+        "safety score": ["check_room_for_error"],
+        "portfolio": ["analyze_portfolio_risk", "suggest_investment_allocation"],
+        "investment": ["analyze_portfolio_risk", "suggest_investment_allocation"],
+        "risk": ["analyze_portfolio_risk", "check_room_for_error"],
+        "simulate": ["simulate_financial_goal"],
+        "goal": ["simulate_financial_goal"],
+        "spending": ["analyze_spending_habits", "detect_financial_anomalies"],
+        "habits": ["analyze_spending_habits"],
+        "chart": ["generate_chart_data"],
+        "graph": ["generate_chart_data"],
+        "money meeting": ["build_money_meeting_agenda", "get_personal_summary", "get_business_summary"],
+        "weekly review": ["build_money_meeting_agenda"],
+        "health": ["check_financial_health", "check_room_for_error"],
+        "validate": ["validate_journal_entry_structure"],
+        "journal": ["validate_journal_entry_structure", "create_journal_entry_draft"],
+    }
+
+    def suggest(self, message: str) -> list[str]:
+        lower = message.lower()
+        seen: set[str] = set()
+        ordered: list[str] = []
+        for keyword, tools in self.INTENT_PLANS.items():
+            if keyword in lower:
+                for t in tools:
+                    if t not in seen:
+                        seen.add(t)
+                        ordered.append(t)
+        return ordered
+
+
 def build_tool_registry() -> ToolRegistry:
     registry = ToolRegistry()
     registry.register("create_journal_entry_draft", CreateJournalEntryDraftArgs, _tool_create_journal_entry_draft)
@@ -816,6 +1060,18 @@ def build_tool_registry() -> ToolRegistry:
     registry.register("check_financial_health", CheckFinancialHealthArgs, _tool_check_financial_health)
     registry.register("simulate_financial_goal", SimulateGoalArgs, _tool_simulate_financial_goal)
     registry.register("validate_journal_entry_structure", ValidateJournalArgs, _tool_validate_journal_entry_structure)
+    # skill-backed analytics (read-only)
+    registry.register("generate_income_statement_data", JournalLinesArgs, _tool_generate_income_statement_data)
+    registry.register("generate_balance_sheet_data", JournalLinesArgs, _tool_generate_balance_sheet_data)
+    registry.register("generate_trial_balance_data", JournalLinesArgs, _tool_generate_trial_balance_data)
+    registry.register("analyze_personal_cashflow", TransactionsListArgs, _tool_analyze_personal_cashflow)
+    registry.register("analyze_budget_variance", BudgetVarianceArgs, _tool_analyze_budget_variance)
+    registry.register("check_room_for_error", RoomForErrorArgs, _tool_check_room_for_error)
+    registry.register("analyze_portfolio_risk", ReturnsListArgs, _tool_analyze_portfolio_risk)
+    registry.register("detect_financial_anomalies", AnomalyRecordsArgs, _tool_detect_financial_anomalies)
+    registry.register("generate_chart_data", ChartDataArgs, _tool_generate_chart_data)
+    registry.register("build_money_meeting_agenda", MoneyMeetingContextArgs, _tool_build_money_meeting_agenda)
+    registry.register("create_accounting_question", AccountingQuestionArgs, _tool_create_accounting_question)
     return registry
 
 
@@ -856,14 +1112,17 @@ class AgentService:
         policy_engine: PolicyEngine | None = None,
         confirmation_engine: ConfirmationEngine | None = None,
         audit_logger: AgentAuditLogger | None = None,
+        skill_planner: SkillPlanner | None = None,
     ) -> None:
         self.tool_registry = tool_registry or build_tool_registry()
         self.policy_engine = policy_engine or PolicyEngine()
         self.confirmation_engine = confirmation_engine or ConfirmationEngine()
         self.audit_logger = audit_logger or AgentAuditLogger()
+        self.skill_planner = skill_planner or SkillPlanner()
+        _openai_provider = OpenAIProvider(tool_registry=self.tool_registry)
         self.providers: dict[str, LLMProvider] = {
             "heuristic": HeuristicProvider(),
-            "openai": OpenAIProvider(),
+            "openai": _openai_provider,
             "anthropic": AnthropicProvider(tool_registry=self.tool_registry),
             "gemini": GeminiProvider(),
         }
@@ -879,7 +1138,9 @@ class AgentService:
         configured_api_key = self._decrypt_user_api_key(settings_row.ai_api_key_encrypted)
 
         provider_name = configured_provider
-        if provider_name == "anthropic" or (provider_name is None and os.getenv("ANTHROPIC_API_KEY")):
+        if provider_name == "openai" or (provider_name is None and os.getenv("OPENAI_API_KEY") and not os.getenv("ANTHROPIC_API_KEY")):
+            provider_name = "openai"
+        elif provider_name == "anthropic" or (provider_name is None and os.getenv("ANTHROPIC_API_KEY")):
             provider_name = "anthropic"
         elif provider_name not in self.providers:
             provider_name = "heuristic"
@@ -900,10 +1161,15 @@ class AgentService:
                 )
             )
 
+        suggested_tools = self.skill_planner.suggest(payload.message)
+        if suggested_tools:
+            log.debug("SkillPlanner suggests: %s", suggested_tools)
+
         provider_message, planned, provider_disclaimers = await provider.plan(
             payload,
             api_key=configured_api_key,
             model=configured_model,
+            suggested_tools=suggested_tools,
         )
         disclaimers.extend(provider_disclaimers)
         for planned_call in planned:

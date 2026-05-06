@@ -67,7 +67,8 @@ async def test_agent_drafts_personal_expense_then_posts_after_confirmation(seede
     assert draft_entry.status == JournalEntryStatus.posted
 
 
-async def test_agent_creates_business_invoice_draft_from_sale_phrase(seeded, db):
+async def test_agent_creates_business_invoice_requires_confirmation(seeded, db):
+    """create_invoice is a sensitive action — it must land in pending_confirmations first."""
     service = AgentService()
     me = await _current_user(db, seeded)
 
@@ -78,9 +79,30 @@ async def test_agent_creates_business_invoice_draft_from_sale_phrase(seeded, db)
     )
 
     invoice_call = next(call for call in response.tool_calls if call.tool_name == "create_invoice")
-    assert invoice_call.status == "completed"
-    invoice = await db.get(Invoice, uuid.UUID(invoice_call.result["invoice_id"]))
-    customer = await db.get(Customer, uuid.UUID(invoice_call.result["customer_id"]))
+    assert invoice_call.status == "confirmation_required"
+    assert any(pc.tool_name == "create_invoice" for pc in response.pending_confirmations)
+
+    # After explicit confirmation, the invoice is created and persisted.
+    confirmed = await service.chat(
+        db,
+        me=me,
+        payload=AgentChatRequest(
+            message="Confirm.",
+            confirmations=[
+                {
+                    "tool_name": response.pending_confirmations[0].tool_name,
+                    "arguments": response.pending_confirmations[0].arguments,
+                }
+            ],
+        ),
+    )
+    confirmed_call = next(
+        (c for c in confirmed.tool_calls if c.tool_name == "create_invoice"), None
+    )
+    assert confirmed_call is not None
+    assert confirmed_call.status == "completed"
+    invoice = await db.get(Invoice, uuid.UUID(confirmed_call.result["invoice_id"]))
+    customer = await db.get(Customer, uuid.UUID(confirmed_call.result["customer_id"]))
     assert invoice is not None
     assert customer is not None
     assert customer.name == "Cliente X"

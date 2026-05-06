@@ -132,6 +132,57 @@ class ValidateJournalArgs(BaseModel):
     lines: list[dict]
 
 
+# ── Skill-backed analytics tools ────────────────────────────────────────────
+
+class JournalLinesArgs(BaseModel):
+    """Accepts raw journal lines + account list for deterministic accounting reports."""
+    journal_lines: list[dict] = Field(default_factory=list)
+    accounts: list[dict] = Field(default_factory=list)
+
+
+class TransactionsListArgs(BaseModel):
+    transactions: list[dict] = Field(default_factory=list)
+
+
+class BudgetVarianceArgs(BaseModel):
+    budget_lines: list[dict] = Field(default_factory=list)
+    actual_by_category: dict = Field(default_factory=dict)
+
+
+class RoomForErrorArgs(BaseModel):
+    profile: dict = Field(default_factory=dict)
+
+
+class ReturnsListArgs(BaseModel):
+    returns: list[float] = Field(default_factory=list)
+    confidence_level: float = Field(default=0.95, ge=0.5, le=0.999)
+
+
+class AnomalyRecordsArgs(BaseModel):
+    records: list[dict] = Field(default_factory=list)
+    group_col: str = Field(default="category")
+    z_threshold: float = Field(default=2.5, ge=0.5)
+
+
+class ChartDataArgs(BaseModel):
+    chart_type: str = Field(default="line", max_length=20)
+    title: str = Field(default="Chart", max_length=200)
+    rows: list[dict] = Field(default_factory=list)
+    x_key: str = Field(default="period")
+    y_key: str = Field(default="value")
+    label_key: str = Field(default="label")
+    value_key: str = Field(default="value")
+
+
+class MoneyMeetingContextArgs(BaseModel):
+    context: dict = Field(default_factory=dict)
+
+
+class AccountingQuestionArgs(BaseModel):
+    record: dict = Field(default_factory=dict)
+    reason_codes: list[str] = Field(default_factory=list)
+
+
 class GenericToolResult(BaseModel):
     model_config = ConfigDict(extra="allow")
 
