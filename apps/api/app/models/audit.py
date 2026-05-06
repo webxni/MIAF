@@ -12,8 +12,8 @@ from app.models.base import Base, CreatedAt, UUIDPK
 class AuditLog(UUIDPK, CreatedAt, Base):
     """Append-only record of every sensitive action.
 
-    No update/delete paths exist in the API. Phase 12 will add database-level
-    revocation of UPDATE/DELETE on this table to enforce that at the DB layer.
+    No update/delete paths exist in the API, and Phase 12 also revokes
+    UPDATE/DELETE on this table at the database layer for the app role.
     """
 
     __tablename__ = "audit_logs"

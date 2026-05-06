@@ -213,7 +213,7 @@ async def test_filter_by_since_works(client: AsyncClient, seeded: dict, db) -> N
     db.add_all([older, newer])
     await db.flush()
 
-    response = await client.get(f"/audit-logs?action=since_check&since={newer.created_at.isoformat().replace("+", "%2B")}")
+    response = await client.get(f"/audit-logs?action=since_check&since={newer.created_at.isoformat().replace('+', '%2B')}")
 
     assert response.status_code == 200
     body = response.json()
