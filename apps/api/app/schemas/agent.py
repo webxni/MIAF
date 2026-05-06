@@ -138,6 +138,60 @@ class ValidateJournalArgs(BaseModel):
     lines: list[dict]
 
 
+class RecordInvoicePaymentArgs(BaseModel):
+    invoice_id: uuid.UUID
+    amount: Decimal = Field(gt=0, decimal_places=2)
+    payment_date: date
+    reference: str | None = Field(default=None, max_length=100)
+
+    _coerce_amount = field_validator("amount", mode="before")(_to_decimal)
+
+
+class CreateBillArgs(BaseModel):
+    vendor_name: str = Field(min_length=1, max_length=200)
+    amount: Decimal = Field(gt=0, decimal_places=2)
+    description: str = Field(min_length=1, max_length=500)
+    bill_date: date
+    due_date: date
+
+    _coerce_amount = field_validator("amount", mode="before")(_to_decimal)
+
+
+class RecordBillPaymentArgs(BaseModel):
+    bill_id: uuid.UUID
+    amount: Decimal = Field(gt=0, decimal_places=2)
+    payment_date: date
+    reference: str | None = Field(default=None, max_length=100)
+
+    _coerce_amount = field_validator("amount", mode="before")(_to_decimal)
+
+
+class CreateBudgetAgentArgs(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    period_start: date
+    period_end: date
+    notes: str | None = Field(default=None, max_length=500)
+
+
+class CreateGoalAgentArgs(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    target_amount: Decimal = Field(gt=0, decimal_places=2)
+    target_date: date | None = None
+    notes: str | None = Field(default=None, max_length=500)
+
+    _coerce_amount = field_validator("target_amount", mode="before")(_to_decimal)
+
+
+class CreateDebtPlanAgentArgs(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    current_balance: Decimal = Field(ge=0, decimal_places=2)
+    interest_rate_apr: Decimal | None = Field(default=None, ge=0)
+    minimum_payment: Decimal | None = Field(default=None, ge=0, decimal_places=2)
+    notes: str | None = Field(default=None, max_length=500)
+
+    _coerce = field_validator("current_balance", "interest_rate_apr", "minimum_payment", mode="before")(_to_decimal)
+
+
 # ── Skill-backed analytics tools ────────────────────────────────────────────
 
 class JournalLinesArgs(BaseModel):

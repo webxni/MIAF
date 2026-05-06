@@ -7,6 +7,15 @@
 :80 {
 	encode zstd gzip
 
+	# Basic security headers (mirrored from prod; no HSTS since HTTP-only dev)
+	header {
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; frame-ancestors 'none';"
+		-Server
+	}
+
 	# API: strip the /api prefix before reverse-proxying.
 	handle_path /api/* {
 		reverse_proxy api:8000

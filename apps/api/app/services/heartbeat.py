@@ -419,6 +419,17 @@ async def _create_alert(
     message: str,
     payload: dict | None = None,
 ) -> Alert:
+    # Deduplicate: skip if an open alert of the same type already exists for this entity.
+    dup_stmt = select(Alert).where(
+        Alert.tenant_id == run.tenant_id,
+        Alert.entity_id == entity_id,
+        Alert.alert_type == alert_type,
+        Alert.status == AlertStatus.open,
+    ).limit(1)
+    existing = (await db.execute(dup_stmt)).scalar_one_or_none()
+    if existing is not None:
+        return existing
+
     row = Alert(
         tenant_id=run.tenant_id,
         entity_id=entity_id,

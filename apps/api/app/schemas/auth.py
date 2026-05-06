@@ -16,6 +16,11 @@ class RegisterOwnerRequest(BaseModel):
     name: str = Field(min_length=1, max_length=100)
 
 
+class PasswordChangeRequest(BaseModel):
+    current_password: str = Field(min_length=1, max_length=1000)
+    new_password: str = Field(min_length=12, max_length=1000)
+
+
 class UserOut(BaseModel):
     id: uuid.UUID
     tenant_id: uuid.UUID

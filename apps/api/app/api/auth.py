@@ -8,7 +8,7 @@ from app.config import get_settings
 from app.core.brand import SHORT_NAME
 from app.errors import AuthError, ConflictError
 from app.models import EntityMode, Tenant, User
-from app.schemas.auth import LoginRequest, RegisterOwnerRequest, UserOut
+from app.schemas.auth import LoginRequest, PasswordChangeRequest, RegisterOwnerRequest, UserOut
 from app.services.entities import create_entity
 from app.services.audit import write_audit
 from app.services.auth import (
@@ -17,10 +17,11 @@ from app.services.auth import (
     create_session,
     find_user_by_email,
     record_login_attempt,
+    revoke_all_sessions,
     revoke_session,
 )
 from app.services.seed import create_default_chart_of_accounts
-from app.security import hash_password
+from app.security import hash_password, verify_password
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -190,3 +191,53 @@ async def logout(response: Response, db: DB, me: CurrentUserDep, ctx: RequestCtx
 @router.get("/me", response_model=UserOut)
 async def me(me: CurrentUserDep) -> UserOut:
     return UserOut.model_validate(me.user)
+
+
+@router.put("/password", status_code=status.HTTP_204_NO_CONTENT)
+async def change_password(
+    payload: PasswordChangeRequest,
+    response: Response,
+    db: DB,
+    me: CurrentUserDep,
+    ctx: RequestCtx,
+) -> Response:
+    if not verify_password(payload.current_password, me.user.password_hash):
+        raise AuthError("Current password is incorrect", code="wrong_password")
+    me.user.password_hash = hash_password(payload.new_password)
+    await write_audit(
+        db,
+        tenant_id=me.tenant_id,
+        user_id=me.id,
+        entity_id=None,
+        action="password_change",
+        object_type="user",
+        object_id=me.id,
+        ip=ctx.ip,
+        user_agent=ctx.user_agent,
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/revoke-all-sessions", status_code=status.HTTP_204_NO_CONTENT)
+async def revoke_all_my_sessions(
+    response: Response,
+    db: DB,
+    me: CurrentUserDep,
+    ctx: RequestCtx,
+) -> Response:
+    count = await revoke_all_sessions(db, user_id=me.id)
+    settings = get_settings()
+    response.delete_cookie(settings.session_cookie_name, path="/")
+    await write_audit(
+        db,
+        tenant_id=me.tenant_id,
+        user_id=me.id,
+        entity_id=None,
+        action="revoke_all_sessions",
+        object_type="session",
+        object_id=me.id,
+        after={"sessions_revoked": count},
+        ip=ctx.ip,
+        user_agent=ctx.user_agent,
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

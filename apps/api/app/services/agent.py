@@ -27,6 +27,8 @@ from app.config import get_settings
 from app.core.brand import AGENT_INTRO, DISPLAY_NAME, SHORT_NAME, TAGLINE
 from app.errors import MIAFError, NotFoundError, RateLimitError
 from app.models import Account, AuditLog, Customer, Entity, EntityMember, EntityMode
+from app.models.journal import JournalEntry, JournalEntryStatus, JournalLine
+from app.models.account import AccountType
 from app.models.base import utcnow
 from app.schemas.agent import (
     AccountingQuestionArgs,
@@ -34,6 +36,13 @@ from app.schemas.agent import (
     AgentChatResponse,
     AgentToolCallOut,
     AnalyzeSpendingArgs,
+    ConversationMessage,
+    CreateBillArgs,
+    CreateBudgetAgentArgs,
+    CreateDebtPlanAgentArgs,
+    CreateGoalAgentArgs,
+    RecordBillPaymentArgs,
+    RecordInvoicePaymentArgs,
     AnomalyRecordsArgs,
     BudgetVarianceArgs,
     CashFlowArgs,
@@ -59,7 +68,9 @@ from app.schemas.agent import (
     TransactionsListArgs,
     ValidateJournalArgs,
 )
-from app.schemas.business import CustomerCreate, InvoiceCreate
+from app.schemas.business import BillCreate, BillLineIn, CustomerCreate, InvoiceCreate, PaymentCreate, VendorCreate
+from app.schemas.personal import BudgetCreate, DebtCreate, GoalCreate
+from app.models.business import PaymentKind, Vendor as VendorModel
 from app.schemas.journal import JournalEntryCreate, JournalEntryOut, JournalLineIn
 from app.schemas.memory import MemoryCreate
 from app.services.audit import write_audit
@@ -67,15 +78,21 @@ from app.services.business import (
     balance_sheet,
     business_dashboard,
     cash_flow_statement,
+    create_bill,
     create_customer,
     create_invoice,
+    create_vendor,
+    get_bill,
+    get_invoice,
     income_statement,
+    record_payment,
+    tax_reserve_report,
 )
 from app.services.entities import list_entities_for_user
 from app.services.crypto import decrypt_secret
 from app.services.journal import create_draft, get_entry_scoped, post_entry
 from app.services.memory import create_memory, list_memories
-from app.services.personal import personal_dashboard
+from app.services.personal import create_budget, create_debt, create_goal, personal_dashboard
 from app.services.user_settings import get_or_create as get_or_create_user_settings
 
 
@@ -804,11 +821,62 @@ async def _tool_suggest_investment_allocation(
 
 
 async def _tool_explain_transaction(ctx: ToolContext, args: ExplainTransactionArgs) -> dict[str, Any]:
+    keyword = args.description.lower()
+    stmt = (
+        select(JournalEntry)
+        .join(Entity, JournalEntry.entity_id == Entity.id)
+        .where(
+            Entity.tenant_id == ctx.me.tenant_id,
+            JournalEntry.status == JournalEntryStatus.posted,
+            JournalEntry.memo.ilike(f"%{keyword[:80]}%"),
+        )
+        .order_by(JournalEntry.entry_date.desc())
+        .limit(3)
+    )
+    rows = (await ctx.db.execute(stmt)).scalars().all()
+    if not rows:
+        return {
+            "explanation": (
+                f"No posted journal entries matched '{args.description}'. "
+                "In double-entry accounting every transaction posts balanced debit and credit lines. "
+                "You can search by exact memo text or entry ID."
+            ),
+            "entries_found": 0,
+        }
+
+    entries_out = []
+    for entry in rows:
+        lines_stmt = (
+            select(JournalLine, Account)
+            .join(Account, JournalLine.account_id == Account.id)
+            .where(JournalLine.entry_id == entry.id)
+        )
+        line_rows = (await ctx.db.execute(lines_stmt)).all()
+        entries_out.append({
+            "entry_id": str(entry.id),
+            "entry_date": str(entry.entry_date),
+            "memo": entry.memo,
+            "status": entry.status.value,
+            "lines": [
+                {
+                    "account_code": acc.code,
+                    "account_name": acc.name,
+                    "account_type": acc.type.value,
+                    "debit": float(line.debit),
+                    "credit": float(line.credit),
+                    "description": line.description,
+                }
+                for line, acc in line_rows
+            ],
+        })
+
     return {
         "explanation": (
-            "Transactions are explained from deterministic accounting rules. "
-            f"Description received: {args.description}"
-        )
+            f"Found {len(entries_out)} posted journal entr{'y' if len(entries_out)==1 else 'ies'} "
+            f"matching '{args.description}'. Each entry has balanced debit and credit lines."
+        ),
+        "entries_found": len(entries_out),
+        "entries": entries_out,
     }
 
 
@@ -873,6 +941,178 @@ async def _tool_not_implemented(_: ToolContext, __) -> dict[str, Any]:
     return {"status": "not_implemented", "message": "This tool is reserved for a later phase."}
 
 
+async def _vendor_by_name(db: AsyncSession, entity_id: uuid.UUID, name: str) -> VendorModel | None:
+    return (
+        await db.execute(
+            select(VendorModel).where(VendorModel.entity_id == entity_id, VendorModel.name == name)
+        )
+    ).scalar_one_or_none()
+
+
+async def _tool_record_invoice_payment(ctx: ToolContext, args: RecordInvoicePaymentArgs) -> dict[str, Any]:
+    entity = await _entity_for_mode(ctx, EntityMode.business)
+    invoice = await get_invoice(ctx.db, entity_id=entity.id, invoice_id=args.invoice_id)
+    payment = await record_payment(
+        ctx.db,
+        entity_id=entity.id,
+        user_id=ctx.me.id,
+        payload=PaymentCreate(
+            confirmed=True,
+            kind=PaymentKind.customer_receipt,
+            payment_date=args.payment_date,
+            amount=args.amount,
+            reference=args.reference,
+            invoice_id=invoice.id,
+        ),
+    )
+    return {
+        "entity_id": str(entity.id),
+        "payment_id": str(payment.id),
+        "invoice_id": str(invoice.id),
+        "amount": str(payment.amount),
+        "status": "posted",
+    }
+
+
+async def _tool_create_bill(ctx: ToolContext, args: CreateBillArgs) -> dict[str, Any]:
+    entity = await _entity_for_mode(ctx, EntityMode.business)
+    vendor = await _vendor_by_name(ctx.db, entity.id, args.vendor_name)
+    if vendor is None:
+        vendor = await create_vendor(
+            ctx.db,
+            entity_id=entity.id,
+            payload=VendorCreate(name=args.vendor_name),
+        )
+    expense_account = await _account_by_code(
+        ctx.db, entity.id, _category_to_code(args.description)
+    )
+    bill = await create_bill(
+        ctx.db,
+        entity_id=entity.id,
+        payload=BillCreate(
+            vendor_id=vendor.id,
+            number=f"AGENT-{date.today().strftime('%Y%m%d')}-{str(vendor.id)[:6]}",
+            bill_date=args.bill_date,
+            due_date=args.due_date,
+            memo="Agent-drafted bill",
+            lines=[
+                BillLineIn(
+                    description=args.description,
+                    quantity=Decimal("1"),
+                    unit_price=args.amount,
+                    expense_account_id=expense_account.id,
+                )
+            ],
+        ),
+    )
+    return {
+        "entity_id": str(entity.id),
+        "bill_id": str(bill.id),
+        "vendor_id": str(vendor.id),
+        "status": bill.status.value,
+        "total": str(bill.total),
+    }
+
+
+async def _tool_record_bill_payment(ctx: ToolContext, args: RecordBillPaymentArgs) -> dict[str, Any]:
+    entity = await _entity_for_mode(ctx, EntityMode.business)
+    bill = await get_bill(ctx.db, entity_id=entity.id, bill_id=args.bill_id)
+    payment = await record_payment(
+        ctx.db,
+        entity_id=entity.id,
+        user_id=ctx.me.id,
+        payload=PaymentCreate(
+            confirmed=True,
+            kind=PaymentKind.vendor_payment,
+            payment_date=args.payment_date,
+            amount=args.amount,
+            reference=args.reference,
+            bill_id=bill.id,
+        ),
+    )
+    return {
+        "entity_id": str(entity.id),
+        "payment_id": str(payment.id),
+        "bill_id": str(bill.id),
+        "amount": str(payment.amount),
+        "status": "posted",
+    }
+
+
+async def _tool_create_budget(ctx: ToolContext, args: CreateBudgetAgentArgs) -> dict[str, Any]:
+    entity = await _entity_for_mode(ctx, EntityMode.personal)
+    budget = await create_budget(
+        ctx.db,
+        entity_id=entity.id,
+        payload=BudgetCreate(
+            name=args.name,
+            period_start=args.period_start,
+            period_end=args.period_end,
+            notes=args.notes,
+            lines=[],
+        ),
+    )
+    return {
+        "entity_id": str(entity.id),
+        "budget_id": str(budget.id),
+        "name": budget.name,
+        "period_start": str(budget.period_start),
+        "period_end": str(budget.period_end),
+        "note": "Budget created with no lines. Add budget lines from the web UI or via the budget API.",
+    }
+
+
+async def _tool_create_goal(ctx: ToolContext, args: CreateGoalAgentArgs) -> dict[str, Any]:
+    from app.models.goal import GoalKind, GoalStatus
+    entity = await _entity_for_mode(ctx, EntityMode.personal)
+    goal = await create_goal(
+        ctx.db,
+        entity_id=entity.id,
+        payload=GoalCreate(
+            name=args.name,
+            kind=GoalKind.savings,
+            target_amount=args.target_amount,
+            target_date=args.target_date,
+            notes=args.notes,
+        ),
+    )
+    return {
+        "entity_id": str(entity.id),
+        "goal_id": str(goal.id),
+        "name": goal.name,
+        "target_amount": str(goal.target_amount),
+        "target_date": str(goal.target_date) if goal.target_date else None,
+        "status": goal.status.value,
+    }
+
+
+async def _tool_create_debt_plan(ctx: ToolContext, args: CreateDebtPlanAgentArgs) -> dict[str, Any]:
+    from app.models.debt import DebtKind
+    entity = await _entity_for_mode(ctx, EntityMode.personal)
+    debt = await create_debt(
+        ctx.db,
+        entity_id=entity.id,
+        payload=DebtCreate(
+            confirmed=True,
+            name=args.name,
+            kind=DebtKind.other,
+            current_balance=args.current_balance,
+            interest_rate_apr=args.interest_rate_apr,
+            minimum_payment=args.minimum_payment,
+            notes=args.notes,
+        ),
+    )
+    return {
+        "entity_id": str(entity.id),
+        "debt_id": str(debt.id),
+        "name": debt.name,
+        "current_balance": str(debt.current_balance),
+        "interest_rate_apr": str(debt.interest_rate_apr) if debt.interest_rate_apr else None,
+        "minimum_payment": str(debt.minimum_payment) if debt.minimum_payment else None,
+        "status": debt.status.value,
+    }
+
+
 async def _tool_search_memory(ctx: ToolContext, args: MemoryArgs) -> dict[str, Any]:
     rows = await list_memories(ctx.db, tenant_id=ctx.me.tenant_id, query=args.query, limit=5)
     return {
@@ -888,13 +1128,33 @@ async def _tool_search_memory(ctx: ToolContext, args: MemoryArgs) -> dict[str, A
     }
 
 
+def _infer_memory_type(text: str) -> str:
+    lower = text.lower()
+    if any(k in lower for k in ("merchant", "vendor", "store", "categorize", "account code")):
+        return "merchant_rule"
+    if any(k in lower for k in ("goal", "saving for", "target", "fund")):
+        return "goal_context"
+    if any(k in lower for k in ("tax", "deductible", "iva", "impuesto")):
+        return "tax_context"
+    if any(k in lower for k in ("risk", "invest", "portfolio", "conservative", "aggressive")):
+        return "risk_preference"
+    if any(k in lower for k in ("prefer", "always", "never", "rule", "policy")):
+        return "financial_rule"
+    if any(k in lower for k in ("business", "company", "negocio", "empresa")):
+        return "business_profile"
+    if any(k in lower for k in ("personal", "myself", "my income", "my expense")):
+        return "personal_preference"
+    return "advisor_note"
+
+
 async def _tool_add_memory(ctx: ToolContext, args: MemoryArgs) -> dict[str, Any]:
+    memory_type = _infer_memory_type(args.query)
     memory = await create_memory(
         ctx.db,
         tenant_id=ctx.me.tenant_id,
         user_id=ctx.me.id,
         payload=MemoryCreate(
-            memory_type="advisor_note",
+            memory_type=memory_type,
             title=args.query[:80],
             content=args.query,
             summary=args.query[:200],
@@ -907,7 +1167,6 @@ async def _tool_add_memory(ctx: ToolContext, args: MemoryArgs) -> dict[str, Any]
 
 async def _tool_analyze_spending_habits(ctx: ToolContext, args: AnalyzeSpendingArgs) -> dict[str, Any]:
     from app.skills.personal_finance.behavior.habits import analyze_spending_habits
-    from app.models import EntityMode
 
     entities = await list_entities_for_user(ctx.db, user_id=ctx.me.id)
     personal = next(
@@ -917,23 +1176,54 @@ async def _tool_analyze_spending_habits(ctx: ToolContext, args: AnalyzeSpendingA
     if personal is None:
         return {"warnings": ["No personal entity found."]}
 
-    dashboard = await personal_dashboard(ctx.db, entity_id=personal.id, as_of=args.as_of)
+    date_from = args.as_of - timedelta(days=args.limit)
+    line_stmt = (
+        select(JournalLine, Account, JournalEntry)
+        .join(JournalEntry, JournalLine.entry_id == JournalEntry.id)
+        .join(Account, JournalLine.account_id == Account.id)
+        .where(
+            JournalEntry.entity_id == personal.id,
+            JournalEntry.status == JournalEntryStatus.posted,
+            Account.type == AccountType.expense,
+            JournalEntry.entry_date >= date_from,
+            JournalEntry.entry_date <= args.as_of,
+            JournalLine.debit > 0,
+        )
+        .order_by(JournalEntry.entry_date.desc())
+        .limit(500)
+    )
+    line_rows = (await ctx.db.execute(line_stmt)).all()
+
     transactions = [
-        {"amount": float(dashboard.monthly_expenses), "type": "expense", "category": "total_expenses"},
-        {"amount": float(dashboard.monthly_income), "type": "income", "category": "total_income"},
+        {
+            "amount": float(line.debit),
+            "type": "expense",
+            "category": acc.name,
+            "description": line.description or entry.memo or acc.name,
+            "date": str(entry.entry_date),
+        }
+        for line, acc, entry in line_rows
     ]
+
+    dashboard = await personal_dashboard(ctx.db, entity_id=personal.id, as_of=args.as_of)
+    if not transactions:
+        transactions = [
+            {"amount": float(dashboard.monthly_expenses), "type": "expense", "category": "total_expenses"},
+        ]
+
     result = analyze_spending_habits(transactions)
     result["summary"] = {
         "monthly_income": float(dashboard.monthly_income),
         "monthly_expenses": float(dashboard.monthly_expenses),
         "savings_rate": float(dashboard.savings_rate),
+        "transactions_analyzed": len(transactions),
+        "period_days": args.limit,
     }
     return result
 
 
 async def _tool_check_financial_health(ctx: ToolContext, args: CheckFinancialHealthArgs) -> dict[str, Any]:
     from app.skills.personal_finance.calculations.room_for_error import calculate_room_for_error_score
-    from app.models import EntityMode
 
     entities = await list_entities_for_user(ctx.db, user_id=ctx.me.id)
     personal = next(
@@ -946,11 +1236,29 @@ async def _tool_check_financial_health(ctx: ToolContext, args: CheckFinancialHea
     dashboard = await personal_dashboard(ctx.db, entity_id=personal.id, as_of=args.as_of)
     income = float(dashboard.monthly_income)
     expenses = float(dashboard.monthly_expenses)
+
+    # Derive business income dependency from personal dashboard's business_dependency data
+    business_dependency_ratio = float(dashboard.business_dependency.business_dependency_ratio)
+
+    # Derive tax reserve gap from the business entity if one exists
+    tax_reserve_gap = 0.0
+    business_entity = next(
+        (e for e in entities if e.tenant_id == ctx.me.tenant_id and e.mode == EntityMode.business),
+        None,
+    )
+    if business_entity is not None:
+        try:
+            tax_report = await tax_reserve_report(ctx.db, entity_id=business_entity.id, as_of=args.as_of)
+            gap = float(tax_report.reserve_gap)
+            tax_reserve_gap = max(0.0, gap)
+        except Exception:
+            pass
+
     profile = {
         "emergency_fund_months": float(dashboard.emergency_fund_months),
         "debt_to_income_ratio": expenses / income if income > 0 else 0.0,
-        "business_income_dependency": 0.0,
-        "tax_reserve_gap": 0.0,
+        "business_income_dependency": business_dependency_ratio,
+        "tax_reserve_gap": tax_reserve_gap,
     }
     score = calculate_room_for_error_score(profile)
     return {
@@ -959,6 +1267,8 @@ async def _tool_check_financial_health(ctx: ToolContext, args: CheckFinancialHea
         "monthly_expenses": expenses,
         "savings_rate": float(dashboard.savings_rate),
         "emergency_fund_months": float(dashboard.emergency_fund_months),
+        "business_income_dependency": business_dependency_ratio,
+        "tax_reserve_gap": tax_reserve_gap,
     }
 
 
@@ -1113,17 +1423,17 @@ def build_tool_registry() -> ToolRegistry:
     registry.register("create_personal_expense", CreatePersonalExpenseArgs, _tool_create_personal_expense)
     registry.register("create_business_expense", CreatePersonalExpenseArgs, _tool_create_business_expense)
     registry.register("create_invoice", CreateInvoiceArgs, _tool_create_invoice)
-    registry.register("record_invoice_payment", PostJournalEntryArgs, _tool_not_implemented, visible=False)
-    registry.register("create_bill", CreateInvoiceArgs, _tool_not_implemented, visible=False)
-    registry.register("record_bill_payment", PostJournalEntryArgs, _tool_not_implemented, visible=False)
+    registry.register("record_invoice_payment", RecordInvoicePaymentArgs, _tool_record_invoice_payment, visible=False)
+    registry.register("create_bill", CreateBillArgs, _tool_create_bill, visible=False)
+    registry.register("record_bill_payment", RecordBillPaymentArgs, _tool_record_bill_payment, visible=False)
     registry.register("get_personal_summary", SummaryArgs, _tool_get_personal_summary)
     registry.register("get_business_summary", SummaryArgs, _tool_get_business_summary)
     registry.register("get_balance_sheet", StatementArgs, _tool_get_balance_sheet)
     registry.register("get_income_statement", CashFlowArgs, _tool_get_income_statement)
     registry.register("get_cash_flow", CashFlowArgs, _tool_get_cash_flow)
-    registry.register("create_budget", MemoryArgs, _tool_not_implemented, visible=False)
-    registry.register("create_goal", MemoryArgs, _tool_not_implemented, visible=False)
-    registry.register("create_debt_plan", MemoryArgs, _tool_not_implemented, visible=False)
+    registry.register("create_budget", CreateBudgetAgentArgs, _tool_create_budget, visible=False)
+    registry.register("create_goal", CreateGoalAgentArgs, _tool_create_goal, visible=False)
+    registry.register("create_debt_plan", CreateDebtPlanAgentArgs, _tool_create_debt_plan, visible=False)
     registry.register("suggest_emergency_fund_plan", SuggestEmergencyFundPlanArgs, _tool_suggest_emergency_fund_plan)
     registry.register("suggest_investment_allocation", SuggestInvestmentAllocationArgs, _tool_suggest_investment_allocation)
     registry.register("classify_transaction", ExplainTransactionArgs, _tool_classify_transaction)
@@ -1223,6 +1533,31 @@ class AgentService:
         tool_calls: list[AgentToolCallOut] = []
         pending_confirmations: list[PendingConfirmationOut] = []
         disclaimers: list[str] = []
+
+        if provider_name == "gemini":
+            disclaimers.append(
+                "Gemini provider is not yet fully integrated. Responses use the heuristic fallback."
+            )
+
+        # Inject relevant memories into conversation context before planning
+        try:
+            relevant_memories = await list_memories(
+                db, tenant_id=me.tenant_id, query=payload.message, limit=4
+            )
+            if relevant_memories:
+                memory_lines = "\n".join(
+                    f"- [{m.memory_type.value}] {m.title}: {m.summary or m.content[:200]}"
+                    for m in relevant_memories
+                )
+                memory_context = ConversationMessage(
+                    role="assistant",
+                    content=f"[Relevant memories from your profile]\n{memory_lines}",
+                )
+                payload = payload.model_copy(
+                    update={"conversation_history": [memory_context, *payload.conversation_history]}
+                )
+        except Exception:
+            log.debug("Memory injection skipped", exc_info=True)
 
         for confirmation in payload.confirmations:
             tool_calls.append(

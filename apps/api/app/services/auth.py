@@ -127,3 +127,12 @@ async def revoke_session(db: AsyncSession, session_id: uuid.UUID) -> None:
     obj = await db.get(Session, session_id)
     if obj is not None:
         await db.delete(obj)
+
+
+async def revoke_all_sessions(db: AsyncSession, user_id: uuid.UUID) -> int:
+    rows = (
+        await db.execute(select(Session).where(Session.user_id == user_id))
+    ).scalars().all()
+    for row in rows:
+        await db.delete(row)
+    return len(rows)

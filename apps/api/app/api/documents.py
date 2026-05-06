@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import uuid
+from datetime import timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, UploadFile, status
+from sqlalchemy import func, select
 
 from app.api.deps import DB, CurrentUserDep, RequestCtx, get_entity_for_user, require_reader, require_writer
-from app.errors import ForbiddenError
-from app.models import Entity, EntityMember, Role
+from app.errors import ForbiddenError, RateLimitError
+from app.models import AuditLog, Entity, EntityMember, Role
+from app.models.base import utcnow
 from app.schemas.ingestion import (
     CandidateApprovalIn,
     CandidateApprovalOut,
@@ -47,6 +50,29 @@ router = APIRouter(prefix="/entities/{entity_id}/documents", tags=["documents"])
 global_router = APIRouter(prefix="/documents", tags=["documents"])
 ingest_router = APIRouter(prefix="/ingest", tags=["documents"])
 
+_UPLOAD_RATE_WINDOW_SECONDS = 300  # 5-minute window
+_UPLOAD_RATE_LIMIT = 20  # max uploads per window per user
+
+
+async def _check_upload_rate_limit(db: DB, user_id: uuid.UUID) -> None:
+    since = utcnow() - timedelta(seconds=_UPLOAD_RATE_WINDOW_SECONDS)
+    recent = (
+        await db.execute(
+            select(func.count(AuditLog.id)).where(
+                AuditLog.user_id == user_id,
+                AuditLog.action.in_(["upload", "import"]),
+                AuditLog.object_type.in_(["receipt", "csv_batch", "document"]),
+                AuditLog.created_at >= since,
+            )
+        )
+    ).scalar_one()
+    if recent >= _UPLOAD_RATE_LIMIT:
+        raise RateLimitError(
+            f"Too many uploads. Maximum {_UPLOAD_RATE_LIMIT} uploads per {_UPLOAD_RATE_WINDOW_SECONDS // 60} minutes.",
+            code="upload_rate_limited",
+            details={"window_seconds": _UPLOAD_RATE_WINDOW_SECONDS, "limit": _UPLOAD_RATE_LIMIT},
+        )
+
 
 async def _require_writer_for_entity(entity_id: uuid.UUID, db: DB, me: CurrentUserDep) -> tuple[Entity, EntityMember]:
     entity, membership = await get_entity_for_user(entity_id, db, me)
@@ -64,6 +90,7 @@ async def upload_receipt_endpoint(
     scoped: Annotated[tuple[Entity, EntityMember], Depends(require_writer)],
     file: UploadFile = File(...),
 ) -> ReceiptIngestionOut:
+    await _check_upload_rate_limit(db, me.id)
     data = await file.read()
     result = await ingest_receipt(
         db,
@@ -98,6 +125,7 @@ async def upload_csv_endpoint(
     scoped: Annotated[tuple[Entity, EntityMember], Depends(require_writer)],
     file: UploadFile = File(...),
 ) -> CsvImportOut:
+    await _check_upload_rate_limit(db, me.id)
     data = await file.read()
     result = await import_csv_transactions(
         db,
