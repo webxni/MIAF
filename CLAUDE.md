@@ -254,7 +254,7 @@ Phase 7 status:
 
 Phase 8 status:
 * Heartbeat models live in `app/models/heartbeat.py`: `HeartbeatRun`, `Alert`, and `GeneratedReport`.
-* The implemented heartbeat types are currently: `daily_personal_check`, `daily_business_check`, and `weekly_business_report`. Other contract heartbeat types remain future work.
+* All 10 contract heartbeat types are now implemented: `daily_personal_check`, `weekly_personal_report`, `monthly_personal_close`, `daily_business_check`, `weekly_business_report`, `monthly_business_close`, `tax_reserve_check`, `cash_runway_check`, `budget_overspend_check`, and `ar_ap_aging_check`.
 * `run_heartbeat()` persists a run record, creates alerts/reports deterministically from current finance data, and writes heartbeat audit logs for both manual and scheduler-triggered runs.
 * Alerts can now be listed plus transitioned from `open` to `dismissed` or `resolved` through the heartbeat API; those status changes are tenant-scoped, audited as normal `object_type="alert"` updates, and re-opening or mutating non-open alerts is rejected.
 * Personal checks currently flag low emergency funds, debts due within 7 days, and current-period budget overspends.
@@ -262,7 +262,7 @@ Phase 8 status:
 * Weekly business reports are stored in `generated_reports` as markdown text.
 * The scheduler no longer just logs `tick`; it now POSTs to the internal heartbeat endpoint using `API_HEARTBEAT_URL` and `AUTOMATION_TOKEN`.
 * The web app now exposes heartbeat alerts in three places: `/alerts` for the full table with dismiss/resolve actions, a sidebar badge showing the current open-alert count, and a recent-alerts panel on `/dashboard`.
-* Tests for the heartbeat slice live in `apps/api/tests/test_heartbeat.py`.
+* Tests for the heartbeat slice live in `apps/api/tests/test_heartbeat.py` and `apps/api/tests/test_heartbeat_extra.py`.
 
 Phase 9 status:
 * Skill models live in `app/models/skill.py`: `SkillState` and `SkillRunLog`.

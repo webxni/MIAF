@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.errors import FinClawError, NotFoundError
@@ -23,14 +23,33 @@ from app.models import (
     HeartbeatRunStatus,
     HeartbeatType,
     Invoice,
+    JournalEntry,
+    JournalEntryStatus,
+    NetWorthSnapshot,
     ReportKind,
     TaxReserve,
     Tenant,
 )
 from app.models.base import utcnow
 from app.services.audit import write_audit
-from app.services.business import ap_aging, ar_aging, business_dashboard, list_tax_reserves
-from app.services.personal import budget_actuals, list_budgets, list_debts, personal_dashboard
+from app.services.business import (
+    ap_aging,
+    ar_aging,
+    business_dashboard,
+    closing_checklist,
+    list_tax_reserves,
+    runway_report,
+    tax_reserve_report,
+)
+from app.services.personal import (
+    budget_actuals,
+    create_net_worth_snapshot,
+    debt_payoff_plan,
+    emergency_fund_plan,
+    list_budgets,
+    list_debts,
+    personal_dashboard,
+)
 
 
 @dataclass
@@ -168,13 +187,36 @@ async def run_heartbeat(
         for entity in entities:
             if heartbeat_type == HeartbeatType.daily_personal_check and entity.mode == EntityMode.personal:
                 alerts.extend(await _daily_personal_check(db, run=run, entity=entity, as_of=as_of))
+            elif heartbeat_type == HeartbeatType.weekly_personal_report and entity.mode == EntityMode.personal:
+                alerts.extend(await _weekly_personal_report(db, run=run, entity=entity, as_of=as_of))
+            elif heartbeat_type == HeartbeatType.monthly_personal_close and entity.mode == EntityMode.personal:
+                alerts.extend(await _monthly_personal_close(db, run=run, entity=entity, as_of=as_of))
             elif heartbeat_type == HeartbeatType.daily_business_check and entity.mode == EntityMode.business:
                 alerts.extend(await _daily_business_check(db, run=run, entity=entity, as_of=as_of))
             elif heartbeat_type == HeartbeatType.weekly_business_report and entity.mode == EntityMode.business:
                 reports.append(await _weekly_business_report(db, run=run, entity=entity, as_of=as_of))
+            elif heartbeat_type == HeartbeatType.monthly_business_close and entity.mode == EntityMode.business:
+                alerts.extend(await _monthly_business_close(db, run=run, entity=entity, as_of=as_of))
+            elif heartbeat_type == HeartbeatType.tax_reserve_check and entity.mode == EntityMode.business:
+                alerts.extend(await _tax_reserve_check(db, run=run, entity=entity, as_of=as_of))
+            elif heartbeat_type == HeartbeatType.cash_runway_check and entity.mode == EntityMode.business:
+                alerts.extend(await _cash_runway_check(db, run=run, entity=entity, as_of=as_of))
+            elif heartbeat_type == HeartbeatType.budget_overspend_check and entity.mode == EntityMode.personal:
+                alerts.extend(await _budget_overspend_check(db, run=run, entity=entity, as_of=as_of))
+            elif heartbeat_type == HeartbeatType.ar_ap_aging_check and entity.mode == EntityMode.business:
+                alerts.extend(await _ar_ap_aging_check(db, run=run, entity=entity, as_of=as_of))
             else:
                 continue
 
+        reports = list(
+            (
+                await db.execute(
+                    select(GeneratedReport)
+                    .where(GeneratedReport.heartbeat_run_id == run.id)
+                    .order_by(GeneratedReport.created_at)
+                )
+            ).scalars().all()
+        )
         run.status = HeartbeatRunStatus.completed
         run.finished_at = utcnow()
         run.summary = {
@@ -245,6 +287,42 @@ async def run_default_scheduled_heartbeats(db: AsyncSession, *, as_of: date) -> 
                 )
             ).run
         )
+        runs.append(
+            (
+                await run_heartbeat(
+                    db,
+                    tenant_id=tenant_id,
+                    heartbeat_type=HeartbeatType.tax_reserve_check,
+                    as_of=as_of,
+                    trigger_source="scheduler",
+                    initiated_by_user_id=None,
+                )
+            ).run
+        )
+        runs.append(
+            (
+                await run_heartbeat(
+                    db,
+                    tenant_id=tenant_id,
+                    heartbeat_type=HeartbeatType.cash_runway_check,
+                    as_of=as_of,
+                    trigger_source="scheduler",
+                    initiated_by_user_id=None,
+                )
+            ).run
+        )
+        runs.append(
+            (
+                await run_heartbeat(
+                    db,
+                    tenant_id=tenant_id,
+                    heartbeat_type=HeartbeatType.budget_overspend_check,
+                    as_of=as_of,
+                    trigger_source="scheduler",
+                    initiated_by_user_id=None,
+                )
+            ).run
+        )
         if as_of.weekday() == 0:
             runs.append(
                 (
@@ -252,6 +330,56 @@ async def run_default_scheduled_heartbeats(db: AsyncSession, *, as_of: date) -> 
                         db,
                         tenant_id=tenant_id,
                         heartbeat_type=HeartbeatType.weekly_business_report,
+                        as_of=as_of,
+                        trigger_source="scheduler",
+                        initiated_by_user_id=None,
+                    )
+                ).run
+            )
+            runs.append(
+                (
+                    await run_heartbeat(
+                        db,
+                        tenant_id=tenant_id,
+                        heartbeat_type=HeartbeatType.ar_ap_aging_check,
+                        as_of=as_of,
+                        trigger_source="scheduler",
+                        initiated_by_user_id=None,
+                    )
+                ).run
+            )
+        if as_of.weekday() == 6:
+            runs.append(
+                (
+                    await run_heartbeat(
+                        db,
+                        tenant_id=tenant_id,
+                        heartbeat_type=HeartbeatType.weekly_personal_report,
+                        as_of=as_of,
+                        trigger_source="scheduler",
+                        initiated_by_user_id=None,
+                    )
+                ).run
+            )
+        if as_of.day == 1:
+            runs.append(
+                (
+                    await run_heartbeat(
+                        db,
+                        tenant_id=tenant_id,
+                        heartbeat_type=HeartbeatType.monthly_personal_close,
+                        as_of=as_of,
+                        trigger_source="scheduler",
+                        initiated_by_user_id=None,
+                    )
+                ).run
+            )
+            runs.append(
+                (
+                    await run_heartbeat(
+                        db,
+                        tenant_id=tenant_id,
+                        heartbeat_type=HeartbeatType.monthly_business_close,
                         as_of=as_of,
                         trigger_source="scheduler",
                         initiated_by_user_id=None,
@@ -345,7 +473,7 @@ async def _daily_personal_check(
     for budget in await list_budgets(db, entity_id=entity.id):
         if not (budget.period_start <= as_of <= budget.period_end):
             continue
-        actuals = await budget_actuals(db, budget=budget)
+        actuals = await budget_actuals(db, entity_id=entity.id, budget_id=budget.id)
         overspent = [line for line in actuals.lines if line.overspent]
         if overspent:
             alerts.append(
@@ -495,3 +623,318 @@ async def _weekly_business_report(
     db.add(report)
     await db.flush()
     return report
+
+
+async def _tax_reserve_check(
+    db: AsyncSession,
+    *,
+    run: HeartbeatRun,
+    entity: Entity,
+    as_of: date,
+) -> list[Alert]:
+    alerts: list[Alert] = []
+    report = await tax_reserve_report(db, entity_id=entity.id, as_of=as_of)
+    tax_reserves = await list_tax_reserves(db, entity_id=entity.id)
+
+    if not tax_reserves:
+        alerts.append(
+            await _create_alert(
+                db,
+                run=run,
+                entity_id=entity.id,
+                alert_type="tax_reserve_missing",
+                severity=AlertSeverity.info,
+                title="Tax reserve record is missing",
+                message="No tax reserve estimate has been recorded for this business.",
+            )
+        )
+        return alerts
+
+    if report.reserved_balance < report.latest_estimated_tax:
+        alerts.append(
+            await _create_alert(
+                db,
+                run=run,
+                entity_id=entity.id,
+                alert_type="tax_reserve_gap",
+                severity=AlertSeverity.warning,
+                title="Tax reserve is below estimated need",
+                message=f"Tax reserve gap is {report.reserve_gap}.",
+                payload={
+                    "reserved_balance": str(report.reserved_balance),
+                    "estimated_tax": str(report.latest_estimated_tax),
+                    "reserve_gap": str(report.reserve_gap),
+                },
+            )
+        )
+    return alerts
+
+
+async def _cash_runway_check(
+    db: AsyncSession,
+    *,
+    run: HeartbeatRun,
+    entity: Entity,
+    as_of: date,
+) -> list[Alert]:
+    report = await runway_report(db, entity_id=entity.id, as_of=as_of)
+    if report.monthly_expenses == Decimal("0"):
+        return []
+
+    severity: AlertSeverity | None = None
+    title: str | None = None
+    if report.runway_months < Decimal("1"):
+        severity = AlertSeverity.critical
+        title = "Business cash runway is below one month"
+    elif report.runway_months < Decimal("2"):
+        severity = AlertSeverity.warning
+        title = "Business cash runway is below two months"
+    elif report.runway_months < Decimal("3"):
+        severity = AlertSeverity.info
+        title = "Business cash runway is below three months"
+
+    if severity is None or title is None:
+        return []
+
+    return [
+        await _create_alert(
+            db,
+            run=run,
+            entity_id=entity.id,
+            alert_type="cash_runway_low",
+            severity=severity,
+            title=title,
+            message=f"Operating cash covers {report.runway_months} months of expenses.",
+            payload={
+                "cash_balance": str(report.cash_balance),
+                "monthly_expenses": str(report.monthly_expenses),
+                "runway_months": str(report.runway_months),
+            },
+        )
+    ]
+
+
+async def _budget_overspend_check(
+    db: AsyncSession,
+    *,
+    run: HeartbeatRun,
+    entity: Entity,
+    as_of: date,
+) -> list[Alert]:
+    active_budgets = [
+        budget
+        for budget in await list_budgets(db, entity_id=entity.id)
+        if budget.period_start <= as_of <= budget.period_end
+    ]
+    if not active_budgets:
+        return []
+
+    budget = sorted(active_budgets, key=lambda item: item.period_start, reverse=True)[0]
+    actuals = await budget_actuals(db, entity_id=entity.id, budget_id=budget.id)
+    alerts: list[Alert] = []
+    for line in actuals.lines:
+        if not line.overspent:
+            continue
+        alerts.append(
+            await _create_alert(
+                db,
+                run=run,
+                entity_id=entity.id,
+                alert_type="budget_overspend",
+                severity=AlertSeverity.warning,
+                title=f"Budget overspend: {line.account_code} {line.account_name}",
+                message=(
+                    f"Overspend on {line.account_code} {line.account_name}: "
+                    f"actual {line.actual_amount} vs planned {line.planned_amount}"
+                ),
+                payload={
+                    "budget_id": str(budget.id),
+                    "account_id": str(line.account_id),
+                    "account_code": line.account_code,
+                    "account_name": line.account_name,
+                    "actual_amount": str(line.actual_amount),
+                    "planned_amount": str(line.planned_amount),
+                },
+            )
+        )
+    return alerts
+
+
+async def _ar_ap_aging_check(
+    db: AsyncSession,
+    *,
+    run: HeartbeatRun,
+    entity: Entity,
+    as_of: date,
+) -> list[Alert]:
+    alerts: list[Alert] = []
+    ar = await ar_aging(db, entity_id=entity.id, as_of=as_of)
+    for row in [aging_row for aging_row in ar.rows if aging_row.days_91_plus > Decimal("0")][:5]:
+        alerts.append(
+            await _create_alert(
+                db,
+                run=run,
+                entity_id=entity.id,
+                alert_type="ar_aging_91_plus",
+                severity=AlertSeverity.warning,
+                title=f"AR over 91 days: {row.counterparty_name}",
+                message=f"{row.counterparty_name} has {row.balance_due} outstanding over 91 days.",
+                payload={
+                    "number": row.number,
+                    "counterparty_name": row.counterparty_name,
+                    "balance_due": str(row.balance_due),
+                    "days_91_plus": str(row.days_91_plus),
+                },
+            )
+        )
+
+    ap = await ap_aging(db, entity_id=entity.id, as_of=as_of)
+    for row in [aging_row for aging_row in ap.rows if aging_row.days_91_plus > Decimal("0")][:5]:
+        alerts.append(
+            await _create_alert(
+                db,
+                run=run,
+                entity_id=entity.id,
+                alert_type="ap_aging_91_plus",
+                severity=AlertSeverity.warning,
+                title=f"AP over 91 days: {row.counterparty_name}",
+                message=f"{row.counterparty_name} has {row.balance_due} payable over 91 days.",
+                payload={
+                    "number": row.number,
+                    "counterparty_name": row.counterparty_name,
+                    "balance_due": str(row.balance_due),
+                    "days_91_plus": str(row.days_91_plus),
+                },
+            )
+        )
+    return alerts
+
+
+async def _weekly_personal_report(
+    db: AsyncSession,
+    *,
+    run: HeartbeatRun,
+    entity: Entity,
+    as_of: date,
+) -> list[Alert]:
+    period_end = as_of
+    period_start = as_of - timedelta(days=6)
+    dashboard = await personal_dashboard(db, entity_id=entity.id, as_of=as_of)
+    debt_plan = await debt_payoff_plan(db, entity_id=entity.id, as_of=as_of)
+    emergency_plan = await emergency_fund_plan(db, entity_id=entity.id, as_of=as_of)
+
+    body = "\n".join(
+        [
+            f"# Weekly Personal Report: {entity.name}",
+            f"- Period: {period_start.isoformat()} to {period_end.isoformat()}",
+            f"- Net worth: {dashboard.net_worth}",
+            f"- Monthly income: {dashboard.monthly_income}",
+            f"- Monthly expenses: {dashboard.monthly_expenses}",
+            f"- Monthly savings: {dashboard.monthly_savings}",
+            f"- Emergency fund balance: {dashboard.emergency_fund_balance}",
+            f"- Emergency fund coverage months: {dashboard.emergency_fund_months}",
+            f"- Emergency fund gap to minimum: {emergency_plan.gap_to_minimum}",
+            f"- Total debt: {debt_plan.total_debt}",
+            f"- Active debts in payoff plan: {len(debt_plan.debts)}",
+        ]
+    )
+    db.add(
+        GeneratedReport(
+            tenant_id=run.tenant_id,
+            entity_id=entity.id,
+            heartbeat_run_id=run.id,
+            report_kind=ReportKind.weekly_personal_report,
+            period_start=period_start,
+            period_end=period_end,
+            title=f"Weekly personal report for {entity.name}",
+            body=body,
+        )
+    )
+    await db.flush()
+
+    if dashboard.emergency_fund_months < Decimal("1"):
+        return [
+            await _create_alert(
+                db,
+                run=run,
+                entity_id=entity.id,
+                alert_type="emergency_fund_low",
+                severity=AlertSeverity.info,
+                title="Emergency fund is below one month",
+                message="Weekly personal report flagged reserves below one month of expenses.",
+                payload={"emergency_fund_months": str(dashboard.emergency_fund_months)},
+            )
+        ]
+    return []
+
+
+async def _monthly_personal_close(
+    db: AsyncSession,
+    *,
+    run: HeartbeatRun,
+    entity: Entity,
+    as_of: date,
+) -> list[Alert]:
+    existing = (
+        await db.execute(
+            select(NetWorthSnapshot).where(
+                NetWorthSnapshot.entity_id == entity.id,
+                NetWorthSnapshot.as_of == as_of,
+            )
+        )
+    ).scalar_one_or_none()
+    if existing is None:
+        await create_net_worth_snapshot(db, entity_id=entity.id, as_of=as_of)
+    return []
+
+
+async def _monthly_business_close(
+    db: AsyncSession,
+    *,
+    run: HeartbeatRun,
+    entity: Entity,
+    as_of: date,
+) -> list[Alert]:
+    alerts: list[Alert] = []
+    checklist = await closing_checklist(db, entity_id=entity.id, as_of=as_of)
+    unposted_drafts = (
+        await db.execute(
+            select(func.count(JournalEntry.id)).where(
+                JournalEntry.entity_id == entity.id,
+                JournalEntry.status == JournalEntryStatus.draft,
+            )
+        )
+    ).scalar_one()
+    if unposted_drafts > 0:
+        alerts.append(
+            await _create_alert(
+                db,
+                run=run,
+                entity_id=entity.id,
+                alert_type="monthly_close_unposted_drafts",
+                severity=AlertSeverity.info,
+                title="Monthly close has unposted drafts",
+                message=f"{unposted_drafts} draft journal entries remain unposted.",
+                payload={"unposted_drafts": int(unposted_drafts)},
+            )
+        )
+
+    tax_report = await tax_reserve_report(db, entity_id=entity.id, as_of=as_of)
+    if checklist.tax_reserve_balance < tax_report.latest_estimated_tax:
+        alerts.append(
+            await _create_alert(
+                db,
+                run=run,
+                entity_id=entity.id,
+                alert_type="tax_reserve_gap",
+                severity=AlertSeverity.warning,
+                title="Tax reserve is below estimated need",
+                message=f"Monthly close found a tax reserve gap of {tax_report.reserve_gap}.",
+                payload={
+                    "tax_reserve_balance": str(checklist.tax_reserve_balance),
+                    "estimated_tax": str(tax_report.latest_estimated_tax),
+                    "reserve_gap": str(tax_report.reserve_gap),
+                },
+            )
+        )
+    return alerts
