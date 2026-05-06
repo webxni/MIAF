@@ -5,6 +5,7 @@ from fastapi import APIRouter, Response, status
 
 from app.api.deps import DB, CurrentUserDep, RequestCtx
 from app.config import get_settings
+from app.core.brand import SHORT_NAME
 from app.errors import AuthError, ConflictError
 from app.models import EntityMode, Tenant, User
 from app.schemas.auth import LoginRequest, RegisterOwnerRequest, UserOut
@@ -110,7 +111,7 @@ async def register_owner(
             code="owner_already_exists",
         )
 
-    tenant = Tenant(name="My FinClaw")
+    tenant = Tenant(name=f"{SHORT_NAME} Workspace")
     db.add(tenant)
     await db.flush()
 

@@ -131,3 +131,25 @@ async def test_telegram_summary_command_returns_deterministic_summary(seeded, db
 
     assert result.accepted is True
     assert "summary" in result.reply_text.lower()
+
+
+async def test_telegram_start_command_uses_miaf_branding(seeded, db):
+    await create_or_update_link(
+        db,
+        tenant_id=uuid.UUID(seeded["tenant_id"]),
+        user_id=uuid.UUID(seeded["user_id"]),
+        payload=await _link_payload(seeded),
+    )
+
+    result = await process_inbound_message(
+        db,
+        payload=TelegramInboundMessageIn(
+            telegram_user_id="tg-user-1",
+            telegram_chat_id="tg-chat-1",
+            message_type=TelegramMessageType.text,
+            text="/start",
+        ),
+    )
+
+    assert result.accepted is True
+    assert "MIAF, tu Mayordomo IA Financiero." in result.reply_text

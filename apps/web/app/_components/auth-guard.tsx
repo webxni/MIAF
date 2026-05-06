@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { me, type User } from "../_lib/api";
+import { brand } from "../_lib/brand";
 
 export function AuthGuard({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -30,7 +31,7 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
   if (loading || !user) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[var(--surface)] text-[var(--muted)]">
-        Loading FinClaw…
+        Loading {brand.shortName}…
       </div>
     );
   }

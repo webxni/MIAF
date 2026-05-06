@@ -8,7 +8,7 @@ from collections import Counter
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.errors import FinClawError, NotFoundError
+from app.errors import MIAFError, NotFoundError
 from app.models import Memory, MemoryEmbedding, MemoryEvent, MemoryEventType, MemoryReview, MemoryType
 from app.models.base import utcnow
 from app.schemas.memory import MemoryCreate, MemoryReviewCreate, MemoryUpdate
@@ -66,13 +66,13 @@ async def create_memory(
     payload: MemoryCreate,
 ) -> Memory:
     if not payload.consent_granted:
-        raise FinClawError(
+        raise MIAFError(
             "Memory writes require explicit consent",
             code="memory_consent_required",
         )
 
     if any(pattern.search(payload.content) for pattern in _SENSITIVE_PATTERNS):
-        raise FinClawError(
+        raise MIAFError(
             "Sensitive credentials must not be stored in memory",
             code="memory_sensitive_content_blocked",
         )
@@ -171,7 +171,7 @@ async def update_memory(
         memory.title = payload.title
     if payload.content is not None:
         if any(pattern.search(payload.content) for pattern in _SENSITIVE_PATTERNS):
-            raise FinClawError(
+            raise MIAFError(
                 "Sensitive credentials must not be stored in memory",
                 code="memory_sensitive_content_blocked",
             )

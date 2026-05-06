@@ -10,6 +10,7 @@ import {
   type Entity,
   type InvestmentAccount,
 } from "../../../_lib/api";
+import { brand } from "../../../_lib/brand";
 
 function holdingValue(shares: string, current: string | null): number {
   const px = current ? Number(current) : 0;
@@ -63,7 +64,7 @@ export default function PersonalInvestmentsPage() {
       </div>
 
       <div className="rounded-xl border border-[var(--line)] bg-[var(--surface)] px-4 py-3 text-xs text-[var(--muted)]">
-        Investment tracking is advisory only. FinClaw does not execute trades or
+        Investment tracking is advisory only. {brand.shortName} does not execute trades or
         guarantee returns.
       </div>
 

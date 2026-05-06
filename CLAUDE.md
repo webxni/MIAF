@@ -18,16 +18,16 @@ This repo is active and already has Phases 0, 1, 2, 3, 4, an initial Phase 5 web
 - Phase 9: skills engine slice now exists with `app/models/skill.py`, `app/services/skills.py`, `app/schemas/skill.py`, `app/api/skills.py`, migration `0007_skills_engine.py`, built-in skill manifests under repo-root `skills/` plus runtime-visible mirrors under `apps/api/skills/`, a web `Skills` page, and tests for manifest loading, toggles, execution logs, and permission enforcement.
 - Phase 10: Telegram backend slice now exists with `app/models/telegram.py`, `app/services/telegram.py`, `app/schemas/telegram.py`, `app/api/telegram.py`, migration `0008_telegram.py`, and tests for allowlisted routing, personal/business flows, receipt uploads, and summary commands.
 - Phase 11: reporting/analysis slice now extends the personal and business report services with debt payoff plans, emergency fund plans, investment allocation summaries, business dependency reports, revenue-by-customer, expenses-by-vendor, gross margin, runway, tax reserve reports, and deterministic explanation endpoints that cite internal facts; tests cover both personal and business analytic reports.
-- Phase 12: security-hardening slice now adds explicit CORS allowlist config, login-attempt persistence, login throttling, successful/failed login attempt recording, failed-login audit coverage for known users, first-run owner registration throttled on the same email/IP gate before account creation, an owner/admin-gated read-only audit-log endpoint with tenant-scoped filtering and pagination, DB-level UPDATE/DELETE on `audit_logs` REVOKEd from the application role (migration `0011`), and a production deploy guide at `docs/DEPLOY.md`; `Caddyfile.prod` uses `CADDY_ADMIN_EMAIL` for ACME and `infra/docker/postgres/init.sql` provisions a non-super `finclaw_app` role.
+- Phase 12: security-hardening slice now adds explicit CORS allowlist config, login-attempt persistence, login throttling, successful/failed login attempt recording, failed-login audit coverage for known users, first-run owner registration throttled on the same email/IP gate before account creation, an owner/admin-gated read-only audit-log endpoint with tenant-scoped filtering and pagination, DB-level UPDATE/DELETE on `audit_logs` REVOKEd from the application role (migration `0011`), and a production deploy guide at `docs/DEPLOY.md`; `Caddyfile.prod` uses `CADDY_ADMIN_EMAIL` for ACME and `infra/docker/postgres/init.sql` provisions a non-super `miaf_app` role.
 - Phase 13: a composed end-to-end backend demo flow now exists in pytest, covering login, CSV import, receipt ingestion and approval, customer invoice posting and payment, vendor bill posting, owner-draw linkage across business and personal entities, report refresh, heartbeat alerting, weekly reporting, and audit-log presence.
 
-Treat `FinClaw.md` as the product contract and this file as the current repo-state memo. Do not assume the repo is empty.
+Treat `MIAF.md` as the product contract and this file as the current repo-state memo. Do not assume the repo is empty.
 
-When asked to "build phase N", read that phase block in `FinClaw.md` and implement against its acceptance criteria — those are the contract.
+When asked to "build phase N", read that phase block in `MIAF.md` and implement against its acceptance criteria — those are the contract.
 
 ## Product shape (must not drift)
 
-FinClaw is a Docker-first financial assistant covering **personal finance**, **small business / PyME finance**, and the **shared dependency** between them (owner draws, taxes, business cash flow ↔ personal budget). The product is an accounting engine first and an AI interface second — not a chatbot with finance features bolted on.
+MIAF is a Docker-first financial assistant covering **personal finance**, **small business / PyME finance**, and the **shared dependency** between them (owner draws, taxes, business cash flow ↔ personal budget). The product is an accounting engine first and an AI interface second — not a chatbot with finance features bolted on.
 
 Build order is fixed and non-negotiable:
 
@@ -35,7 +35,7 @@ Build order is fixed and non-negotiable:
 Ledger → Ingestion → Reconciliation → Statements/KPIs → Personal Mode → PyME Mode → AI Agent → Skills → Automation
 ```
 
-Phases 0–13 in `FinClaw.md` follow this order. Do not implement a later phase's surface (e.g. Agent tools, Skills, Telegram) before the deterministic ledger and reports it depends on exist.
+Phases 0–13 in `MIAF.md` follow this order. Do not implement a later phase's surface (e.g. Agent tools, Skills, Telegram) before the deterministic ledger and reports it depends on exist.
 
 ## Hard rules (apply to all phases)
 
@@ -97,7 +97,7 @@ Day-to-day:
 | `make api-shell` / `make web-shell` / `make db-shell` / `make redis-shell` | Open a shell in the named container |
 | `make migrate` | `python -m app.cli migrate` (alembic upgrade head) inside api container |
 | `make seed` | `python -m app.cli seed` — idempotent seed of tenant/user/entities/COA when `SEED_USER_EMAIL` is set; otherwise it skips demo-user creation |
-| `make test` | Run pytest inside api container (uses `finclaw_test` DB) |
+| `make test` | Run pytest inside api container (uses `miaf_test` DB) |
 | `make revision m="..."` | `alembic revision --autogenerate -m "..."` |
 | `make bootstrap` | `up` + `migrate` + `seed` |
 | `make smoke` | Curl `/api/health` and `/api/health/ready` through Caddy |
@@ -111,7 +111,7 @@ Health endpoints (proxied by Caddy under `/api`):
 
 API surface (Phases 1-6 backend):
 
-* `POST /api/auth/login` `{email, password}` → sets httpOnly `finclaw_session` cookie.
+* `POST /api/auth/login` `{email, password}` → sets httpOnly `miaf_session` cookie.
 * `POST /api/auth/register-owner` `{name, email, password}` → first-run only owner bootstrap; creates tenant + personal/business entities + default COAs and sets the same session cookie.
 * `POST /api/auth/logout`, `GET /api/auth/me`.
 * `GET/PUT /api/settings`.

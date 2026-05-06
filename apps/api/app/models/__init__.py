@@ -1,4 +1,4 @@
-"""SQLAlchemy ORM models for FinClaw.
+"""SQLAlchemy ORM models for MIAF.
 
 Importing this package registers every model with the shared Base.metadata,
 which is what Alembic autogenerate and create_all read.

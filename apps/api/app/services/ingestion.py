@@ -15,7 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.errors import FinClawError, NotFoundError
+from app.errors import MIAFError, NotFoundError
 from app.models import (
     Account,
     AccountType,
@@ -207,9 +207,9 @@ async def store_attachment(
     journal_entry_id: uuid.UUID | None = None,
 ) -> Attachment:
     if content_type not in ALLOWED_UPLOAD_TYPES:
-        raise FinClawError("Unsupported file type", code="unsupported_file_type")
+        raise MIAFError("Unsupported file type", code="unsupported_file_type")
     if len(data) > MAX_FILE_BYTES:
-        raise FinClawError("File exceeds max upload size", code="file_too_large")
+        raise MIAFError("File exceeds max upload size", code="file_too_large")
 
     settings = get_settings()
     await asyncio.to_thread(ensure_bucket, minio_client, settings.minio_bucket)
@@ -380,7 +380,7 @@ async def approve_candidate(
     if candidate is None:
         raise NotFoundError(f"Candidate {candidate_id} not found", code="candidate_not_found")
     if candidate.status != CandidateStatus.suggested:
-        raise FinClawError("Candidate is not pending approval", code="candidate_not_pending")
+        raise MIAFError("Candidate is not pending approval", code="candidate_not_pending")
 
     extraction = await db.get(DocumentExtraction, candidate.document_extraction_id)
     if extraction is None:

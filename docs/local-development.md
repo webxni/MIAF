@@ -14,7 +14,7 @@
 | minio       | `minio/minio`                          | 9000 (S3), 9001 (console) | console on `127.0.0.1:9001` (dev only) |
 | backup      | `infra/docker/backup/Dockerfile`       | —             | — |
 
-All services share the user-defined bridge network `finclaw_internal`.
+All services share the user-defined bridge network `miaf_internal`.
 
 ## Editing code
 

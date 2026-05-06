@@ -4,6 +4,7 @@ import Link from "next/link";
 import { FormEvent, useState } from "react";
 
 import { ApiRequestError, registerOwner } from "../_lib/api";
+import { brand } from "../_lib/brand";
 
 export default function OnboardingPage() {
   const [name, setName] = useState("");
@@ -21,7 +22,9 @@ export default function OnboardingPage() {
       window.location.replace("/dashboard");
     } catch (err) {
       if (err instanceof ApiRequestError && err.status === 409 && err.code === "owner_already_exists") {
-        const message = encodeURIComponent("FinClaw is already set up. Sign in with your existing account.");
+        const message = encodeURIComponent(
+          `${brand.shortName} ya está configurado. Inicia sesión con tu cuenta existente.`,
+        );
         window.location.replace(`/login?message=${message}`);
         return;
       }
@@ -35,19 +38,25 @@ export default function OnboardingPage() {
     <main className="grid min-h-screen bg-[var(--surface)] px-6 py-12 lg:grid-cols-[1.1fr_0.9fr]">
       <section className="flex flex-col justify-between rounded-[2rem] bg-[var(--hero)] p-8 text-[var(--hero-ink)]">
         <div>
-          <p className="text-xs uppercase tracking-[0.35em] text-[var(--hero-accent)]">FinClaw</p>
+          <p className="text-xs uppercase tracking-[0.35em] text-[var(--hero-accent)]">
+            {brand.displayName}
+          </p>
           <h1 className="mt-4 max-w-xl font-serif text-5xl leading-tight">
-            Start with your own owner account and a clean ledger workspace.
+            {brand.agentIntro}
           </h1>
           <p className="mt-5 max-w-lg text-base text-[var(--hero-copy)]">
-            First-run setup creates your tenant, personal entity, business entity, and default
-            charts of accounts in one audited step.
+            {brand.description}
+          </p>
+          <p className="mt-3 max-w-lg text-sm text-[var(--hero-copy)]">
+            {brand.subheading} {brand.tagline}
           </p>
         </div>
         <div className="grid gap-4 md:grid-cols-3">
           <div className="rounded-2xl bg-white/8 p-4">
             <p className="text-xs uppercase tracking-[0.2em] text-[var(--hero-accent)]">Tenant</p>
-            <p className="mt-2 text-sm text-[var(--hero-copy)]">A new FinClaw workspace with isolated data ownership.</p>
+            <p className="mt-2 text-sm text-[var(--hero-copy)]">
+              Un nuevo espacio de trabajo de {brand.shortName} con propiedad de datos aislada.
+            </p>
           </div>
           <div className="rounded-2xl bg-white/8 p-4">
             <p className="text-xs uppercase tracking-[0.2em] text-[var(--hero-accent)]">Entities</p>

@@ -1,12 +1,14 @@
-# FinClaw
+# MIAF — Mayordomo IA Financiero
 
-Docker-first financial assistant for **personal finance**, **small business / PyME finance**, and the **shared dependency** between them.
+Administra con sabiduría.
+
+MIAF helps you manage personal finances, small business accounting, and owner finances with AI-assisted bookkeeping and financial guidance.
 
 > Accounting engine first, AI interface second.
 > Deterministic numbers, AI explanations.
 > Never moves real money. Never executes trades.
 
-The full product spec, build phases, and acceptance criteria live in [`FinClaw.md`](./FinClaw.md). Engineering guardrails for contributors and AI agents are in [`CLAUDE.md`](./CLAUDE.md).
+The full product spec, build phases, and acceptance criteria live in [`MIAF.md`](./MIAF.md). Engineering guardrails for contributors and AI agents are in [`CLAUDE.md`](./CLAUDE.md).
 
 ---
 
@@ -87,7 +89,7 @@ Run `make help` for the full list.
 ## Network model
 
 * Only **caddy** is published on host ports (`HTTP_PORT`, `HTTPS_PORT`).
-* `postgres`, `redis`, `minio`, `api`, `web`, `worker`, `scheduler`, `backup` are reachable only on the internal `finclaw_internal` Docker network.
+* `postgres`, `redis`, `minio`, `api`, `web`, `worker`, `scheduler`, `backup` are reachable only on the internal `miaf_internal` Docker network.
 * In dev only, the MinIO **console** (port 9001) is bound to `127.0.0.1` for convenience. In prod it is internal-only.
 * All containers run as a non-root user.
 * Secrets are never baked into images — they're injected via environment variables sourced from `.env`.
@@ -111,7 +113,7 @@ Run `make help` for the full list.
 * Real worker jobs and scheduler actions (later phases).
 * shadcn/ui component setup (Phase 5 will run `shadcn init`).
 
-See [`FinClaw.md`](./FinClaw.md) for the phase-by-phase contract.
+See [`MIAF.md`](./MIAF.md) for the phase-by-phase contract.
 
 ## Production notes
 
@@ -125,4 +127,4 @@ make prod-up
 
 The overlay removes dev source mounts, removes the MinIO console host binding, switches Caddy to a real domain (`CADDY_DOMAIN`) with auto HTTPS, and runs api/web in production mode (no `--reload`, Next.js prebuilt).
 
-Backups are written to the `backup_data` volume as `finclaw_<timestamp>.sql.gz` and pruned per `BACKUP_RETENTION_DAYS`. Use `infra/docker/backup/restore.sh` to restore a dump.
+Backups are written to the `backup_data` volume as `miaf_<timestamp>.sql.gz` and pruned per `BACKUP_RETENTION_DAYS`. Use `infra/docker/backup/restore.sh` to restore a dump.

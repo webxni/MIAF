@@ -7,7 +7,7 @@ from decimal import Decimal
 import pytest
 from sqlalchemy import select
 
-from app.errors import FinClawError
+from app.errors import MIAFError
 from app.models import Account, DebtKind, GoalKind, InvestmentAccountKind, JournalEntryStatus
 from app.schemas.journal import JournalEntryCreate, JournalLineIn
 from app.schemas.personal import (
@@ -87,7 +87,7 @@ async def test_debt_and_investment_creation_require_confirmation(seeded, db):
     entity_id = uuid.UUID(seeded["personal_entity_id"])
     accounts = await _accounts(db, entity_id)
 
-    with pytest.raises(FinClawError) as debt_exc:
+    with pytest.raises(MIAFError) as debt_exc:
         await create_debt(
             db,
             entity_id=entity_id,
@@ -100,7 +100,7 @@ async def test_debt_and_investment_creation_require_confirmation(seeded, db):
         )
     assert debt_exc.value.code == "confirmation_required"
 
-    with pytest.raises(FinClawError) as investment_exc:
+    with pytest.raises(MIAFError) as investment_exc:
         await create_investment_account(
             db,
             entity_id=entity_id,

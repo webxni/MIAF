@@ -29,19 +29,19 @@ async def test_register_owner_creates_tenant_user_entities(client, db):
         "/auth/register-owner",
         json={
             "name": "First Owner",
-            "email": "owner@finclaw.example.com",
+            "email": "owner@miaf.example.com",
             "password": "very-secure-password",
         },
     )
 
     assert response.status_code == 200
     body = response.json()
-    assert body["email"] == "owner@finclaw.example.com"
-    assert "finclaw_session=" in response.headers.get("set-cookie", "")
+    assert body["email"] == "owner@miaf.example.com"
+    assert "miaf_session=" in response.headers.get("set-cookie", "")
 
     me_response = await client.get("/auth/me")
     assert me_response.status_code == 200
-    assert me_response.json()["email"] == "owner@finclaw.example.com"
+    assert me_response.json()["email"] == "owner@miaf.example.com"
 
     entities_response = await client.get("/entities")
     assert entities_response.status_code == 200
@@ -60,7 +60,7 @@ async def test_register_owner_rejects_when_user_exists(client):
         "/auth/register-owner",
         json={
             "name": "First Owner",
-            "email": "owner@finclaw.example.com",
+            "email": "owner@miaf.example.com",
             "password": "very-secure-password",
         },
     )
@@ -70,7 +70,7 @@ async def test_register_owner_rejects_when_user_exists(client):
         "/auth/register-owner",
         json={
             "name": "Second Owner",
-            "email": "second@finclaw.example.com",
+            "email": "second@miaf.example.com",
             "password": "another-secure-password",
         },
     )
@@ -83,7 +83,7 @@ async def test_register_owner_rejects_short_password(client):
         "/auth/register-owner",
         json={
             "name": "Short Password",
-            "email": "owner@finclaw.example.com",
+            "email": "owner@miaf.example.com",
             "password": "short-pass",
         },
     )
@@ -95,7 +95,7 @@ async def test_register_owner_writes_audit_log(client, db):
         "/auth/register-owner",
         json={
             "name": "First Owner",
-            "email": "owner@finclaw.example.com",
+            "email": "owner@miaf.example.com",
             "password": "very-secure-password",
         },
     )

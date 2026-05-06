@@ -1,9 +1,9 @@
-# FinClaw — Plan de Trabajo por Fases
+# MIAF — Plan de Trabajo por Fases
 
 ## Master Prompt para Codex / Claude Code / Gemini CLI
 
 ```txt
-You are building FinClaw, a Docker-first financial AI agent for both personal finances and small business finances.
+You are building MIAF, a Docker-first financial AI agent for both personal finances and small business finances.
 
 Product goal:
 Create a simple but solid financial assistant that helps one user manage:
@@ -105,7 +105,7 @@ Deliver production-quality code with tests, migrations, Docker files, documentat
 ## Phase 0 — Docker-first Monorepo
 
 ```txt
-Task Phase 0: Create the Docker-first FinClaw monorepo.
+Task Phase 0: Create the Docker-first MIAF monorepo.
 
 Create a complete monorepo with:
 
@@ -784,7 +784,7 @@ Features:
 - Receive PDFs.
 - Receive voice notes.
 - Send replies.
-- Link Telegram user to FinClaw user.
+- Link Telegram user to MIAF user.
 - Route message to personal or business entity.
 - Create events and messages.
 - Send agent responses.
@@ -1020,7 +1020,7 @@ Acceptance criteria:
 
 ## Final Product Direction
 
-FinClaw should not start as a chatbot with finance features. It should start as a reliable accounting and finance engine with an AI interface.
+MIAF should not start as a chatbot with finance features. It should start as a reliable accounting and finance engine with an AI interface.
 
 The correct product sequence is:
 

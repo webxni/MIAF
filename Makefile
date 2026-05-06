@@ -49,7 +49,7 @@ web-shell: ## Sh into web container
 	$(COMPOSE) exec web /bin/sh
 
 db-shell: ## psql into postgres
-	$(COMPOSE) exec postgres psql -U $${POSTGRES_USER:-finclaw} -d $${POSTGRES_DB:-finclaw}
+	$(COMPOSE) exec postgres psql -U $${POSTGRES_USER:-miaf} -d $${POSTGRES_DB:-miaf}
 
 redis-shell: ## redis-cli into redis (uses REDIS_PASSWORD)
 	$(COMPOSE) exec redis sh -c 'redis-cli -a "$$REDIS_PASSWORD"'
@@ -71,7 +71,7 @@ migrate: ## Apply database migrations (alembic upgrade head)
 seed: ## Seed default tenant, user, entities, and charts of accounts (idempotent)
 	$(COMPOSE) exec -T api python -m app.cli seed
 
-test: ## Run api tests inside the api container (uses finclaw_test database)
+test: ## Run api tests inside the api container (uses miaf_test database)
 	$(COMPOSE) exec -T api pytest -q
 
 revision: ## Generate an Alembic revision: make revision m="add foo"

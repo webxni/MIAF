@@ -1,6 +1,8 @@
-# FinClaw User Guide
+# MIAF — Mayordomo IA Financiero User Guide
 
-FinClaw is an accounting-first financial assistant covering personal finance, small business (PyME) finance, and the shared dependency between them. The AI agent can explain reports, draft journal entries, and run deterministic analyses — but the ledger, not the AI, is always the source of truth for numbers.
+MIAF es tu Mayordomo IA Financiero. Administra con sabiduría.
+
+MIAF helps you manage personal finances, small business accounting, and owner finances with AI-assisted bookkeeping and financial guidance. The AI agent can explain reports, draft journal entries, and run deterministic analyses, but the ledger, not the AI, is always the source of truth for numbers.
 
 ## Getting started
 
@@ -52,4 +54,4 @@ The agent can remember contextual notes about your finances (spending patterns, 
 
 ## Disclaimer
 
-Investment features are **educational only**. FinClaw does not execute trades, move real money, or guarantee returns. All investment-related outputs carry an explicit disclaimer.
+Investment features are **educational only**. MIAF does not execute trades, move real money, or guarantee returns. All investment-related outputs carry an explicit disclaimer.

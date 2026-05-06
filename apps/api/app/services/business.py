@@ -10,7 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.errors import ConflictError, FinClawError, NotFoundError
+from app.errors import ConflictError, MIAFError, NotFoundError
 from app.models import (
     Account,
     AccountType,
@@ -77,7 +77,7 @@ async def _get_business_entity(db: AsyncSession, entity_id: uuid.UUID) -> Entity
     if entity is None:
         raise NotFoundError(f"Entity {entity_id} not found", code="entity_not_found")
     if entity.mode != EntityMode.business:
-        raise FinClawError(
+        raise MIAFError(
             "This endpoint is only available for business entities",
             code="entity_not_business",
         )
@@ -315,14 +315,14 @@ async def create_invoice(db: AsyncSession, *, entity_id: uuid.UUID, payload: Inv
     await _get_business_entity(db, entity_id)
     await _assert_customer(db, entity_id=entity_id, customer_id=payload.customer_id)
     if payload.due_date < payload.invoice_date:
-        raise FinClawError("due_date must be on or after invoice_date", code="invalid_due_date")
+        raise MIAFError("due_date must be on or after invoice_date", code="invalid_due_date")
     total, built_lines = _invoice_totals(payload.lines)
     accounts = await _get_accounts(
         db, entity_id=entity_id, account_ids=[line["revenue_account_id"] for line in built_lines]
     )
     for account in accounts.values():
         if account.type != AccountType.income:
-            raise FinClawError("Invoice lines must post to income accounts", code="invoice_account_not_income")
+            raise MIAFError("Invoice lines must post to income accounts", code="invoice_account_not_income")
     invoice = Invoice(
         entity_id=entity_id,
         customer_id=payload.customer_id,
@@ -376,13 +376,13 @@ async def list_invoices(db: AsyncSession, *, entity_id: uuid.UUID) -> list[Invoi
 
 async def update_invoice(db: AsyncSession, invoice: Invoice, *, payload: InvoiceUpdate) -> Invoice:
     if invoice.status != BusinessDocumentStatus.draft:
-        raise FinClawError("Only draft invoices can be edited", code="invoice_not_draft")
+        raise MIAFError("Only draft invoices can be edited", code="invoice_not_draft")
     if payload.invoice_date is not None:
         invoice.invoice_date = payload.invoice_date
     if payload.due_date is not None:
         invoice.due_date = payload.due_date
     if invoice.due_date < invoice.invoice_date:
-        raise FinClawError("due_date must be on or after invoice_date", code="invalid_due_date")
+        raise MIAFError("due_date must be on or after invoice_date", code="invalid_due_date")
     if payload.memo is not None:
         invoice.memo = payload.memo
     if payload.lines is not None:
@@ -392,7 +392,7 @@ async def update_invoice(db: AsyncSession, invoice: Invoice, *, payload: Invoice
         )
         for account in accounts.values():
             if account.type != AccountType.income:
-                raise FinClawError("Invoice lines must post to income accounts", code="invoice_account_not_income")
+                raise MIAFError("Invoice lines must post to income accounts", code="invoice_account_not_income")
         for existing in list(invoice.lines):
             await db.delete(existing)
         await db.flush()
@@ -414,9 +414,9 @@ async def post_invoice(
     confirmed: bool,
 ) -> Invoice:
     if not confirmed:
-        raise FinClawError("Posting an invoice requires explicit confirmation", code="confirmation_required")
+        raise MIAFError("Posting an invoice requires explicit confirmation", code="confirmation_required")
     if invoice.status != BusinessDocumentStatus.draft:
-        raise FinClawError("Only draft invoices can be posted", code="invoice_not_draft")
+        raise MIAFError("Only draft invoices can be posted", code="invoice_not_draft")
     ar = await _account_by_code(db, entity_id=invoice.entity_id, code="1200")
     payload = JournalEntryCreate(
         entry_date=invoice.invoice_date,
@@ -442,14 +442,14 @@ async def create_bill(db: AsyncSession, *, entity_id: uuid.UUID, payload: BillCr
     await _get_business_entity(db, entity_id)
     await _assert_vendor(db, entity_id=entity_id, vendor_id=payload.vendor_id)
     if payload.due_date < payload.bill_date:
-        raise FinClawError("due_date must be on or after bill_date", code="invalid_due_date")
+        raise MIAFError("due_date must be on or after bill_date", code="invalid_due_date")
     total, built_lines = _bill_totals(payload.lines)
     accounts = await _get_accounts(
         db, entity_id=entity_id, account_ids=[line["expense_account_id"] for line in built_lines]
     )
     for account in accounts.values():
         if account.type not in (AccountType.expense, AccountType.asset):
-            raise FinClawError("Bill lines must post to expense or asset accounts", code="bill_account_invalid_type")
+            raise MIAFError("Bill lines must post to expense or asset accounts", code="bill_account_invalid_type")
     bill = Bill(
         entity_id=entity_id,
         vendor_id=payload.vendor_id,
@@ -503,13 +503,13 @@ async def list_bills(db: AsyncSession, *, entity_id: uuid.UUID) -> list[Bill]:
 
 async def update_bill(db: AsyncSession, bill: Bill, *, payload: BillUpdate) -> Bill:
     if bill.status != BusinessDocumentStatus.draft:
-        raise FinClawError("Only draft bills can be edited", code="bill_not_draft")
+        raise MIAFError("Only draft bills can be edited", code="bill_not_draft")
     if payload.bill_date is not None:
         bill.bill_date = payload.bill_date
     if payload.due_date is not None:
         bill.due_date = payload.due_date
     if bill.due_date < bill.bill_date:
-        raise FinClawError("due_date must be on or after bill_date", code="invalid_due_date")
+        raise MIAFError("due_date must be on or after bill_date", code="invalid_due_date")
     if payload.memo is not None:
         bill.memo = payload.memo
     if payload.lines is not None:
@@ -519,7 +519,7 @@ async def update_bill(db: AsyncSession, bill: Bill, *, payload: BillUpdate) -> B
         )
         for account in accounts.values():
             if account.type not in (AccountType.expense, AccountType.asset):
-                raise FinClawError("Bill lines must post to expense or asset accounts", code="bill_account_invalid_type")
+                raise MIAFError("Bill lines must post to expense or asset accounts", code="bill_account_invalid_type")
         for existing in list(bill.lines):
             await db.delete(existing)
         await db.flush()
@@ -541,9 +541,9 @@ async def post_bill(
     confirmed: bool,
 ) -> Bill:
     if not confirmed:
-        raise FinClawError("Posting a bill requires explicit confirmation", code="confirmation_required")
+        raise MIAFError("Posting a bill requires explicit confirmation", code="confirmation_required")
     if bill.status != BusinessDocumentStatus.draft:
-        raise FinClawError("Only draft bills can be posted", code="bill_not_draft")
+        raise MIAFError("Only draft bills can be posted", code="bill_not_draft")
     ap = await _account_by_code(db, entity_id=bill.entity_id, code="2100")
     payload = JournalEntryCreate(
         entry_date=bill.bill_date,
@@ -574,31 +574,31 @@ async def record_payment(
 ) -> Payment:
     await _get_business_entity(db, entity_id)
     if not payload.confirmed:
-        raise FinClawError("Recording a payment requires explicit confirmation", code="confirmation_required")
+        raise MIAFError("Recording a payment requires explicit confirmation", code="confirmation_required")
     cash = await _account_by_code(db, entity_id=entity_id, code="1110")
     ar = await _account_by_code(db, entity_id=entity_id, code="1200")
     ap = await _account_by_code(db, entity_id=entity_id, code="2100")
 
     if payload.kind == PaymentKind.customer_receipt:
         if payload.invoice_id is None or payload.bill_id is not None:
-            raise FinClawError("Customer receipt must reference invoice_id only", code="invalid_payment_target")
+            raise MIAFError("Customer receipt must reference invoice_id only", code="invalid_payment_target")
         invoice = await get_invoice(db, entity_id=entity_id, invoice_id=payload.invoice_id)
         if invoice.status not in (BusinessDocumentStatus.posted, BusinessDocumentStatus.partial):
-            raise FinClawError("Invoice is not open for payment", code="invoice_not_open")
+            raise MIAFError("Invoice is not open for payment", code="invoice_not_open")
         if payload.amount > invoice.balance_due:
-            raise FinClawError("Payment exceeds invoice balance due", code="payment_exceeds_balance")
+            raise MIAFError("Payment exceeds invoice balance due", code="payment_exceeds_balance")
         journal_lines = [
             JournalLineIn(account_id=cash.id, debit=payload.amount, credit=ZERO),
             JournalLineIn(account_id=ar.id, debit=ZERO, credit=payload.amount),
         ]
     else:
         if payload.bill_id is None or payload.invoice_id is not None:
-            raise FinClawError("Vendor payment must reference bill_id only", code="invalid_payment_target")
+            raise MIAFError("Vendor payment must reference bill_id only", code="invalid_payment_target")
         bill = await get_bill(db, entity_id=entity_id, bill_id=payload.bill_id)
         if bill.status not in (BusinessDocumentStatus.posted, BusinessDocumentStatus.partial):
-            raise FinClawError("Bill is not open for payment", code="bill_not_open")
+            raise MIAFError("Bill is not open for payment", code="bill_not_open")
         if payload.amount > bill.balance_due:
-            raise FinClawError("Payment exceeds bill balance due", code="payment_exceeds_balance")
+            raise MIAFError("Payment exceeds bill balance due", code="payment_exceeds_balance")
         journal_lines = [
             JournalLineIn(account_id=ap.id, debit=payload.amount, credit=ZERO),
             JournalLineIn(account_id=cash.id, debit=ZERO, credit=payload.amount),
@@ -918,7 +918,7 @@ async def list_tax_reserves(db: AsyncSession, *, entity_id: uuid.UUID) -> list[T
 async def create_closing_period(db: AsyncSession, *, entity_id: uuid.UUID, payload: ClosingPeriodCreate) -> ClosingPeriod:
     await _get_business_entity(db, entity_id)
     if payload.period_end < payload.period_start:
-        raise FinClawError("period_end must be on or after period_start", code="invalid_closing_period")
+        raise MIAFError("period_end must be on or after period_start", code="invalid_closing_period")
     row = ClosingPeriod(
         entity_id=entity_id,
         period_start=payload.period_start,

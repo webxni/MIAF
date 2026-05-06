@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.errors import ConflictError, NotFoundError, FinClawError
+from app.errors import ConflictError, NotFoundError, MIAFError
 from app.models import Account, AccountType, NormalSide
 from app.models.account import NORMAL_SIDE_FOR_TYPE
 
@@ -32,7 +32,7 @@ async def get_account_scoped(
 def _check_normal_side(type_: AccountType, normal_side: NormalSide) -> None:
     expected = NORMAL_SIDE_FOR_TYPE[type_]
     if normal_side != expected:
-        raise FinClawError(
+        raise MIAFError(
             f"Account type {type_.value} requires normal_side={expected.value}",
             code="invalid_normal_side",
         )
@@ -56,7 +56,7 @@ async def create_account(
     if parent_id is not None:
         parent = await get_account_scoped(db, entity_id=entity_id, account_id=parent_id)
         if parent.type != type:
-            raise FinClawError(
+            raise MIAFError(
                 f"Parent account type ({parent.type.value}) must match child type ({type.value})",
                 code="parent_type_mismatch",
             )
@@ -97,7 +97,7 @@ async def update_account(
         account.name = name
     if parent_id is not None:
         if parent_id == account.id:
-            raise FinClawError(
+            raise MIAFError(
                 "Account cannot be its own parent",
                 code="self_parent",
             )
@@ -105,7 +105,7 @@ async def update_account(
             db, entity_id=account.entity_id, account_id=parent_id
         )
         if parent.type != account.type:
-            raise FinClawError(
+            raise MIAFError(
                 "Parent account type must match",
                 code="parent_type_mismatch",
             )

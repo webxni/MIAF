@@ -1,26 +1,28 @@
-# FinClaw — Production deployment
+# MIAF — Production deployment
 
 Target: single VM (1 vCPU / 2 GB RAM minimum), single user, single tenant, Docker + Docker Compose v2, real domain pointed at the VM.
+
+Internal infrastructure names such as `miaf_app`, `/opt/miaf`, and `miaf.example.com` remain in this document where they match existing deployment defaults.
 
 ## 1. Prerequisites
 
 - VM with Docker + Docker Compose v2 installed.
-- DNS A record for your domain (for example `finclaw.example.com`) pointing at the VM's public IP.
+- DNS A record for your domain (for example `miaf.example.com`) pointing at the VM's public IP.
 - Ports `80` and `443` open in the VM firewall.
 - About 1 GB free disk for Postgres + MinIO + backups.
 
 ## 2. Clone and configure
 
 ```bash
-git clone <repo> /opt/finclaw
-cd /opt/finclaw
+git clone <repo> /opt/miaf
+cd /opt/miaf
 cp .env.production.example .env
 ```
 
 Edit `.env`:
 
 - Generate `SECRET_KEY`: `python3 -c "import secrets; print(secrets.token_urlsafe(48))"`.
-- Generate strong values for `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD`, `AUTOMATION_TOKEN`, and `FINCLAW_APP_ROLE_PASSWORD` (32+ chars each).
+- Generate strong values for `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD`, `AUTOMATION_TOKEN`, and `MIAF_APP_ROLE_PASSWORD` (32+ chars each).
 - Set `CADDY_DOMAIN=<your-domain>`.
 - Set `CADDY_ADMIN_EMAIL=<your-ops-email>` so Let's Encrypt can warn you about cert issues.
 - Set `CORS_ALLOW_ORIGINS=https://<your-domain>`.
@@ -42,21 +44,21 @@ docker compose -f compose.yaml -f compose.prod.yaml exec -T api python -m app.cl
 
 ## 4. Lock down the Postgres app role
 
-The init script creates a non-super `finclaw_app` role with a deliberately bad placeholder password. Override it after first boot:
+The init script creates a non-super `miaf_app` role with a deliberately bad placeholder password. Override it after first boot:
 
 ```bash
 docker compose -f compose.yaml -f compose.prod.yaml exec -T postgres \
   psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c \
-  "ALTER ROLE finclaw_app PASSWORD '$FINCLAW_APP_ROLE_PASSWORD'; \
-   GRANT INSERT, SELECT ON ALL TABLES IN SCHEMA public TO finclaw_app; \
-   GRANT UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO finclaw_app; \
-   REVOKE UPDATE, DELETE ON TABLE audit_logs FROM finclaw_app;"
+  "ALTER ROLE miaf_app PASSWORD '$MIAF_APP_ROLE_PASSWORD'; \
+   GRANT INSERT, SELECT ON ALL TABLES IN SCHEMA public TO miaf_app; \
+   GRANT UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO miaf_app; \
+   REVOKE UPDATE, DELETE ON TABLE audit_logs FROM miaf_app;"
 ```
 
-Then update `.env` so the running app uses `finclaw_app` instead of the bootstrap admin:
+Then update `.env` so the running app uses `miaf_app` instead of the bootstrap admin:
 
 ```dotenv
-DATABASE_URL=postgresql+asyncpg://finclaw_app:<your-finclaw-app-role-password>@postgres:5432/<your-postgres-db>
+DATABASE_URL=postgresql+asyncpg://miaf_app:<your-miaf-app-role-password>@postgres:5432/<your-postgres-db>
 ```
 
 Restart the long-running app processes:
@@ -65,7 +67,7 @@ Restart the long-running app processes:
 docker compose -f compose.yaml -f compose.prod.yaml up -d api worker scheduler
 ```
 
-Leave the `POSTGRES_USER` admin role for migrations, backup, and ad-hoc DBA work. After switching the app to `finclaw_app`, run migrations with the admin URL as a one-off override:
+Leave the `POSTGRES_USER` admin role for migrations, backup, and ad-hoc DBA work. After switching the app to `miaf_app`, run migrations with the admin URL as a one-off override:
 
 ```bash
 docker compose -f compose.yaml -f compose.prod.yaml exec -T \
@@ -73,7 +75,7 @@ docker compose -f compose.yaml -f compose.prod.yaml exec -T \
   api python -m app.cli migrate
 ```
 
-If a later migration creates new tables, re-run the grant command so `finclaw_app` can access them.
+If a later migration creates new tables, re-run the grant command so `miaf_app` can access them.
 
 ## 5. Create the owner account
 
@@ -100,7 +102,7 @@ Use `infra/docker/backup/restore.sh` for restore. Test a restore at least once b
 ## 8. Updates
 
 ```bash
-cd /opt/finclaw
+cd /opt/miaf
 git pull
 docker compose -f compose.yaml -f compose.prod.yaml up -d --build
 docker compose -f compose.yaml -f compose.prod.yaml exec -T \

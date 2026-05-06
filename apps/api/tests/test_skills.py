@@ -6,7 +6,7 @@ from datetime import date
 import pytest
 from sqlalchemy import select
 
-from app.errors import FinClawError
+from app.errors import MIAFError
 from app.models import HeartbeatType, MemoryType, SkillRunLog, SkillState
 from app.schemas.memory import MemoryCreate
 from app.services.heartbeat import run_heartbeat
@@ -166,7 +166,7 @@ async def test_skill_permission_manifest_is_enforced(seeded, db, monkeypatch):
 
     monkeypatch.setattr("app.services.skills.load_skill_manifests", _fake_manifests)
 
-    with pytest.raises(FinClawError) as exc:
+    with pytest.raises(MIAFError) as exc:
         await run_skill(
             db,
             tenant_id=tenant_id,

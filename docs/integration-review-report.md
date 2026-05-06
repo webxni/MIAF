@@ -7,7 +7,7 @@
 
 ## Summary
 
-Three built-in skill packs have been integrated into the FinClaw agent. All 21 skill manifests are mirrored to `apps/api/skills/` (the container bind-mount path). The agent now has 37 registered tools, a cross-skill intent planner, and a full OpenAI provider implementation.
+Three built-in skill packs have been integrated into the MIAF agent. All 21 skill manifests are mirrored to `apps/api/skills/` (the container bind-mount path). The agent now has 37 registered tools, a cross-skill intent planner, and a full OpenAI provider implementation.
 
 ---
 

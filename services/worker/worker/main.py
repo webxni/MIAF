@@ -5,7 +5,7 @@ import sys
 from redis import Redis
 from rq import Queue, Worker
 
-QUEUES = ["finclaw-default"]
+QUEUES = ["miaf-default"]
 
 
 def main() -> int:

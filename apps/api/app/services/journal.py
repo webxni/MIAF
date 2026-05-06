@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.errors import (
-    FinClawError,
+    MIAFError,
     ImmutableEntryError,
     NotFoundError,
     UnbalancedEntryError,
@@ -94,13 +94,13 @@ async def _validate_accounts_belong_to_entity(
         )
     wrong_entity = [str(r.id) for r in rows if r.entity_id != entity_id]
     if wrong_entity:
-        raise FinClawError(
+        raise MIAFError(
             f"Account(s) do not belong to entity: {wrong_entity}",
             code="account_wrong_entity",
         )
     inactive = [str(r.id) for r in rows if not r.is_active]
     if inactive:
-        raise FinClawError(
+        raise MIAFError(
             f"Account(s) are inactive: {inactive}",
             code="account_inactive",
         )
@@ -132,7 +132,7 @@ async def _validate_linked_entry(
             code="linked_entry_not_found",
         )
     if linked.tenant_id != current_entity.tenant_id:
-        raise FinClawError(
+        raise MIAFError(
             "Linked journal entry belongs to a different tenant",
             code="linked_entry_wrong_tenant",
         )

@@ -1,7 +1,7 @@
 """Test fixtures.
 
 Strategy:
-- Build a separate test database `finclaw_test` once per session (via a sync fixture
+- Build a separate test database `miaf_test` once per session (via a sync fixture
   that drives async setup with `asyncio.run`, so no loop crosses test boundaries).
 - Each test gets its own short-lived async engine + connection. A nested
   transaction is opened at the start and rolled back at the end, so tests are
@@ -35,7 +35,7 @@ def _admin_url(base_url: str) -> str:
     return _build_test_db_url(base_url, "postgres")
 
 
-TEST_DB_NAME = os.getenv("TEST_DB_NAME", "finclaw_test")
+TEST_DB_NAME = os.getenv("TEST_DB_NAME", "miaf_test")
 
 
 async def _setup_db(test_url: str, admin_url: str) -> None:

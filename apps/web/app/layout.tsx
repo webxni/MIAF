@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { brand } from "./_lib/brand";
 
 export const metadata: Metadata = {
-  title: "FinClaw",
-  description: "Personal & PyME finance, ledger first.",
+  title: brand.displayName,
+  description: brand.description,
 };
 
 export default function RootLayout({

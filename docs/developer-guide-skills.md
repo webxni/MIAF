@@ -2,7 +2,7 @@
 
 ## Overview
 
-Skills are typed, permission-gated analytical modules that extend the FinClaw agent. Each skill lives in a `skills/<name>/` directory with three required files:
+Skills are typed, permission-gated analytical modules that extend the MIAF agent. Each skill lives in a `skills/<name>/` directory with three required files:
 
 ```
 skills/<name>/

@@ -28,7 +28,7 @@ services:
   api:
     build:
       target: prod
-    image: finclaw-api:prod
+    image: miaf-api:prod
     restart: always
     environment:
       ENVIRONMENT: production
@@ -38,19 +38,19 @@ services:
   web:
     build:
       target: prod
-    image: finclaw-web:prod
+    image: miaf-web:prod
     restart: always
     environment:
       NODE_ENV: production
     volumes: !reset []
 
   worker:
-    image: finclaw-worker:prod
+    image: miaf-worker:prod
     restart: always
     volumes: !reset []
 
   scheduler:
-    image: finclaw-scheduler:prod
+    image: miaf-scheduler:prod
     restart: always
     volumes: !reset []
 
@@ -62,5 +62,5 @@ services:
       - caddy_config:/config
 
   backup:
-    image: finclaw-backup:prod
+    image: miaf-backup:prod
     restart: always

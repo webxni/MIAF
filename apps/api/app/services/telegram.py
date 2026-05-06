@@ -10,7 +10,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser
-from app.errors import FinClawError, NotFoundError
+from app.core.brand import AGENT_INTRO, SHORT_NAME
+from app.errors import MIAFError, NotFoundError
 from app.models import (
     Account,
     Entity,
@@ -283,7 +284,7 @@ async def _handle_message(
             description = expense.group(2).strip().rstrip(".")
             entry = await _create_business_expense_draft(db, entity_id=link.business_entity_id, user_id=user.id, amount=amount, description=description)
             return (
-                f"Drafted business expense for {amount:.2f}. Confirm posting later from FinClaw before it hits the ledger.",
+                f"Drafted business expense for {amount:.2f}. Confirm posting later from {SHORT_NAME} before it hits the ledger.",
                 link.business_entity_id,
                 entry.id,
             )
@@ -301,7 +302,11 @@ async def _handle_command(
     command: str,
 ) -> tuple[str, uuid.UUID | None, uuid.UUID | None]:
     if command == "/start":
-        return "FinClaw Telegram is linked. Use /personal, /business, /summary, /budget, /cash, or /help.", _entity_for_link(link), None
+        return (
+            f"{AGENT_INTRO} Telegram is linked. Use /personal, /business, /summary, /budget, /cash, or /help.",
+            _entity_for_link(link),
+            None,
+        )
     if command == "/personal":
         link.active_mode = EntityMode.personal
         return "Personal mode is active for this chat.", link.personal_entity_id, None

@@ -11,6 +11,7 @@ import {
   type User,
   type UserSettings,
 } from "../../_lib/api";
+import { brand } from "../../_lib/brand";
 
 const PROVIDERS: Array<{ value: AIProvider; label: string }> = [
   { value: "heuristic", label: "Heuristic" },
@@ -109,8 +110,8 @@ export default function SettingsPage() {
         <p className="text-xs uppercase tracking-[0.25em] text-[var(--accent)]">Settings</p>
         <h1 className="mt-2 text-4xl font-semibold tracking-tight">User settings</h1>
         <p className="mt-3 max-w-3xl text-sm text-[var(--muted)]">
-          Configure the owner profile, accounting defaults, and the provider credentials the agent
-          should use on this local-first installation.
+          Configura el perfil del propietario, los valores contables y las credenciales que{" "}
+          {brand.agentName} debe usar en esta instalación local-first.
         </p>
       </div>
 

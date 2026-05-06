@@ -1,8 +1,8 @@
-name: finclaw
+name: miaf
 
 networks:
-  finclaw:
-    name: finclaw_internal
+  miaf:
+    name: miaf_internal
     driver: bridge
 
 volumes:
@@ -19,12 +19,12 @@ services:
 
   postgres:
     image: pgvector/pgvector:pg16
-    container_name: finclaw-postgres
+    container_name: miaf-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-finclaw}
+      POSTGRES_USER: ${POSTGRES_USER:-miaf}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
-      POSTGRES_DB: ${POSTGRES_DB:-finclaw}
+      POSTGRES_DB: ${POSTGRES_DB:-miaf}
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./infra/docker/postgres/init.sql:/docker-entrypoint-initdb.d/00-init.sql:ro
@@ -33,11 +33,11 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
-    networks: [finclaw]
+    networks: [miaf]
 
   redis:
     image: redis:7-alpine
-    container_name: finclaw-redis
+    container_name: miaf-redis
     restart: unless-stopped
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
@@ -49,11 +49,11 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
-    networks: [finclaw]
+    networks: [miaf]
 
   minio:
     image: minio/minio:RELEASE.2024-12-13T22-19-12Z
-    container_name: finclaw-minio
+    container_name: miaf-minio
     restart: unless-stopped
     command: ["server", "/data", "--console-address", ":9001"]
     environment:
@@ -70,26 +70,26 @@ services:
       # Dev only: bind MinIO console to localhost so the developer can browse buckets.
       # The S3 API (9000) stays internal-only.
       - "127.0.0.1:9001:9001"
-    networks: [finclaw]
+    networks: [miaf]
 
   api:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
       target: dev
-    image: finclaw-api:dev
-    container_name: finclaw-api
+    image: miaf-api:dev
+    container_name: miaf-api
     restart: unless-stopped
     environment:
       ENVIRONMENT: ${ENVIRONMENT:-development}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       SECRET_KEY: ${SECRET_KEY:?SECRET_KEY is required}
-      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER:-finclaw}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-finclaw}}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER:-miaf}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-miaf}}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       MINIO_ENDPOINT: minio:9000
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
-      MINIO_BUCKET: ${MINIO_BUCKET:-finclaw}
+      MINIO_BUCKET: ${MINIO_BUCKET:-miaf}
       MINIO_SECURE: "false"
       CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
       AUTOMATION_TOKEN: ${AUTOMATION_TOKEN:-dev-automation-token}
@@ -108,15 +108,15 @@ services:
       timeout: 5s
       retries: 10
       start_period: 20s
-    networks: [finclaw]
+    networks: [miaf]
 
   web:
     build:
       context: ./apps/web
       dockerfile: Dockerfile
       target: dev
-    image: finclaw-web:dev
-    container_name: finclaw-web
+    image: miaf-web:dev
+    container_name: miaf-web
     restart: unless-stopped
     environment:
       NODE_ENV: development
@@ -136,19 +136,19 @@ services:
       timeout: 5s
       retries: 20
       start_period: 60s
-    networks: [finclaw]
+    networks: [miaf]
 
   worker:
     build:
       context: .
       dockerfile: services/worker/Dockerfile
-    image: finclaw-worker:dev
-    container_name: finclaw-worker
+    image: miaf-worker:dev
+    container_name: miaf-worker
     restart: unless-stopped
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
-      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER:-finclaw}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-finclaw}}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER:-miaf}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-miaf}}
     volumes:
       - ./services/worker:/srv/worker
     depends_on:
@@ -156,19 +156,19 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
-    networks: [finclaw]
+    networks: [miaf]
 
   scheduler:
     build:
       context: .
       dockerfile: services/scheduler/Dockerfile
-    image: finclaw-scheduler:dev
-    container_name: finclaw-scheduler
+    image: miaf-scheduler:dev
+    container_name: miaf-scheduler
     restart: unless-stopped
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
-      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER:-finclaw}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-finclaw}}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER:-miaf}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-miaf}}
       HEARTBEAT_INTERVAL_SECONDS: ${HEARTBEAT_INTERVAL_SECONDS:-300}
       API_HEARTBEAT_URL: ${API_HEARTBEAT_URL:-http://api:8000/internal/heartbeat/run-defaults}
       AUTOMATION_TOKEN: ${AUTOMATION_TOKEN:-dev-automation-token}
@@ -179,11 +179,11 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
-    networks: [finclaw]
+    networks: [miaf]
 
   caddy:
     image: caddy:2-alpine
-    container_name: finclaw-caddy
+    container_name: miaf-caddy
     restart: unless-stopped
     environment:
       CADDY_DOMAIN: ${CADDY_DOMAIN:-localhost}
@@ -198,20 +198,20 @@ services:
     depends_on:
       - api
       - web
-    networks: [finclaw]
+    networks: [miaf]
 
   backup:
     build:
       context: ./infra/docker/backup
-    image: finclaw-backup:dev
-    container_name: finclaw-backup
+    image: miaf-backup:dev
+    container_name: miaf-backup
     restart: unless-stopped
     environment:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: "5432"
-      POSTGRES_USER: ${POSTGRES_USER:-finclaw}
+      POSTGRES_USER: ${POSTGRES_USER:-miaf}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB:-finclaw}
+      POSTGRES_DB: ${POSTGRES_DB:-miaf}
       BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-86400}
       BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-7}
     volumes:
@@ -219,4 +219,4 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    networks: [finclaw]
+    networks: [miaf]

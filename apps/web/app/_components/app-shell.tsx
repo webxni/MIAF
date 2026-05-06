@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { entities, listAlerts, logout, me, type Entity, type User } from "../_lib/api";
+import { brand } from "../_lib/brand";
 
 type NavItem = { href: string; label: string };
 
@@ -79,11 +80,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <aside className="border-b border-[var(--line)] bg-[var(--panel)] px-5 py-6 lg:border-b-0 lg:border-r">
           <div className="mb-8">
             <p className="text-xs uppercase tracking-[0.35em] text-[var(--accent)]">
-              FinClaw
+              {brand.displayName}
             </p>
-            <h1 className="mt-2 font-serif text-3xl tracking-tight">Ledger First</h1>
+            <h1 className="mt-2 font-serif text-3xl tracking-tight">{brand.tagline}</h1>
             <p className="mt-2 text-sm text-[var(--muted)]">
-              Personal and business finance from the same deterministic core.
+              {brand.subheading}
             </p>
           </div>
 

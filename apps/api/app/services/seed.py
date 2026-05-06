@@ -7,6 +7,7 @@ import os
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.brand import SHORT_NAME
 from app.models import (
     Account,
     Entity,
@@ -23,7 +24,7 @@ from app.services.coa import coa_for_mode
 log = logging.getLogger("seed")
 
 
-SEED_TENANT_NAME = "FinClaw Demo Tenant"
+SEED_TENANT_NAME = f"{SHORT_NAME} Demo Workspace"
 DEFAULT_SEED_USER_NAME = "Demo Owner"
 DEFAULT_SEED_USER_PASSWORD = "change-me-on-first-login"
 SEED_PERSONAL_NAME = "Personal"

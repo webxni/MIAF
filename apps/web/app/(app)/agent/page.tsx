@@ -9,6 +9,7 @@ import {
   type AgentToolCall,
   type PendingConfirmation,
 } from "../../_lib/api";
+import { brand } from "../../_lib/brand";
 
 const EXAMPLE_PROMPTS = [
   "Explain the balance sheet.",
@@ -135,8 +136,8 @@ export default function AgentPage() {
         <p className="text-xs uppercase tracking-[0.25em] text-[var(--accent)]">Agent</p>
         <h1 className="mt-2 text-4xl font-semibold tracking-tight">Agent chat</h1>
         <p className="mt-3 max-w-3xl text-sm text-[var(--muted)]">
-          Agent uses your configured AI provider in Settings. Falls back to deterministic
-          heuristics if no API key is set.
+          {brand.agentIntro} Usa el proveedor de IA configurado en Settings y vuelve a heurísticas
+          deterministas si no hay una clave API disponible.
         </p>
       </div>
 
@@ -253,8 +254,8 @@ export default function AgentPage() {
         ) : (
           <div className="rounded-2xl border border-dashed border-[var(--line)] bg-[var(--surface)] px-5 py-8">
             <p className="text-sm text-[var(--muted)]">
-              Start with a question or action request. The agent will show drafts, tool plans, and
-              any confirmation gates before sensitive actions run.
+              {brand.agentIntro} Empieza con una pregunta o una acción. Verás borradores, planes de
+              herramientas y confirmaciones antes de ejecutar pasos sensibles.
             </p>
             <div className="mt-4 flex flex-wrap gap-3">
               {EXAMPLE_PROMPTS.map((prompt) => (

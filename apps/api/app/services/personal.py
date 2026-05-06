@@ -11,7 +11,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.errors import ConflictError, FinClawError, NotFoundError
+from app.errors import ConflictError, MIAFError, NotFoundError
+from app.core.brand import SHORT_NAME
 from app.models import (
     Account,
     AccountType,
@@ -60,7 +61,7 @@ from app.schemas.personal import (
 )
 
 INVESTMENT_DISCLAIMER = (
-    "Investment tracking is advisory only. FinClaw does not execute trades or guarantee returns."
+    f"Investment tracking is advisory only. {SHORT_NAME} does not execute trades or guarantee returns."
 )
 
 
@@ -69,7 +70,7 @@ async def _get_personal_entity(db: AsyncSession, entity_id: uuid.UUID) -> Entity
     if entity is None:
         raise NotFoundError(f"Entity {entity_id} not found", code="entity_not_found")
     if entity.mode != EntityMode.personal:
-        raise FinClawError(
+        raise MIAFError(
             "This endpoint is only available for personal entities",
             code="entity_not_personal",
         )
@@ -204,7 +205,7 @@ async def _replace_budget_lines(
     )
     for account in account_map.values():
         if account.type != AccountType.expense:
-            raise FinClawError(
+            raise MIAFError(
                 "Budget lines must reference expense accounts",
                 code="budget_account_not_expense",
             )
@@ -232,7 +233,7 @@ async def _replace_budget_lines(
 async def create_budget(db: AsyncSession, *, entity_id: uuid.UUID, payload: BudgetCreate) -> Budget:
     await _get_personal_entity(db, entity_id)
     if payload.period_end < payload.period_start:
-        raise FinClawError("period_end must be on or after period_start", code="invalid_budget_period")
+        raise MIAFError("period_end must be on or after period_start", code="invalid_budget_period")
     budget = Budget(
         entity_id=entity_id,
         name=payload.name,
@@ -257,7 +258,7 @@ async def update_budget(db: AsyncSession, budget: Budget, *, payload: BudgetUpda
     if payload.period_end is not None:
         budget.period_end = payload.period_end
     if budget.period_end < budget.period_start:
-        raise FinClawError("period_end must be on or after period_start", code="invalid_budget_period")
+        raise MIAFError("period_end must be on or after period_start", code="invalid_budget_period")
     if payload.notes is not None:
         budget.notes = payload.notes
     if payload.lines is not None:
@@ -415,14 +416,14 @@ async def get_debt(db: AsyncSession, *, entity_id: uuid.UUID, debt_id: uuid.UUID
 async def create_debt(db: AsyncSession, *, entity_id: uuid.UUID, payload: DebtCreate) -> Debt:
     await _get_personal_entity(db, entity_id)
     if not payload.confirmed:
-        raise FinClawError(
+        raise MIAFError(
             "Debt creation requires explicit confirmation",
             code="confirmation_required",
         )
     if payload.linked_account_id is not None:
         account = (await _get_account_map(db, entity_id, [payload.linked_account_id]))[payload.linked_account_id]
         if account.type != AccountType.liability:
-            raise FinClawError("Debt must link to a liability account", code="debt_account_not_liability")
+            raise MIAFError("Debt must link to a liability account", code="debt_account_not_liability")
     debt = Debt(
         entity_id=entity_id,
         name=payload.name,
@@ -462,7 +463,7 @@ async def update_debt(db: AsyncSession, debt: Debt, *, payload: DebtUpdate) -> D
     if payload.linked_account_id is not None:
         account = (await _get_account_map(db, debt.entity_id, [payload.linked_account_id]))[payload.linked_account_id]
         if account.type != AccountType.liability:
-            raise FinClawError("Debt must link to a liability account", code="debt_account_not_liability")
+            raise MIAFError("Debt must link to a liability account", code="debt_account_not_liability")
         debt.linked_account_id = payload.linked_account_id
     if payload.status is not None:
         debt.status = payload.status
@@ -552,14 +553,14 @@ async def create_investment_account(
 ) -> InvestmentAccount:
     await _get_personal_entity(db, entity_id)
     if not payload.confirmed:
-        raise FinClawError(
+        raise MIAFError(
             "Investment account creation requires explicit confirmation",
             code="confirmation_required",
         )
     if payload.linked_account_id is not None:
         account = (await _get_account_map(db, entity_id, [payload.linked_account_id]))[payload.linked_account_id]
         if account.type != AccountType.asset:
-            raise FinClawError(
+            raise MIAFError(
                 "Investment accounts must link to asset accounts",
                 code="investment_account_not_asset",
             )
@@ -595,7 +596,7 @@ async def update_investment_account(
     if payload.linked_account_id is not None:
         account = (await _get_account_map(db, investment_account.entity_id, [payload.linked_account_id]))[payload.linked_account_id]
         if account.type != AccountType.asset:
-            raise FinClawError(
+            raise MIAFError(
                 "Investment accounts must link to asset accounts",
                 code="investment_account_not_asset",
             )

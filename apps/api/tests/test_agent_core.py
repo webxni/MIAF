@@ -122,7 +122,7 @@ async def test_agent_explains_balance_sheet_with_deterministic_report(seeded, db
     call = next(call for call in response.tool_calls if call.tool_name == "get_balance_sheet")
     assert call.status == "completed"
     assert "total_assets" in call.result
-    assert response.message
+    assert response.message.startswith("MIAF, tu Mayordomo IA Financiero.")
 
 
 async def test_agent_compares_personal_and_business_summaries_and_audits(seeded, db):

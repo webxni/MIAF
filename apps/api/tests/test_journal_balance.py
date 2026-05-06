@@ -8,7 +8,7 @@ from decimal import Decimal
 import pytest
 from sqlalchemy import select
 
-from app.errors import FinClawError, ImmutableEntryError, NotFoundError, UnbalancedEntryError
+from app.errors import MIAFError, ImmutableEntryError, NotFoundError, UnbalancedEntryError
 from app.models import Account, Entity, EntityMode, JournalEntry, JournalEntryStatus, Tenant
 from app.schemas.journal import JournalEntryCreate, JournalEntryUpdate, JournalLineIn
 from app.services.journal import (
@@ -139,7 +139,7 @@ async def test_account_must_belong_to_entity(seeded, db):
     )
     with pytest.raises(Exception) as exc:
         await create_draft(db, entity_id=personal_id, user_id=user_id, payload=payload)
-    # service raises FinClawError with code account_wrong_entity
+    # service raises MIAFError with code account_wrong_entity
     assert "account_wrong_entity" in str(exc.value) or "account_wrong_entity" == getattr(exc.value, "code", "")
 
 
@@ -248,7 +248,7 @@ async def test_linked_entry_must_exist_in_same_tenant(seeded, db):
     db.add(foreign_entry)
     await db.flush()
 
-    with pytest.raises(FinClawError) as wrong_tenant:
+    with pytest.raises(MIAFError) as wrong_tenant:
         await create_draft(
             db,
             entity_id=personal_id,

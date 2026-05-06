@@ -16,6 +16,7 @@ from app.models import (
     Tenant,
     User,
 )
+from app.services.seed import SEED_TENANT_NAME
 
 
 pytestmark = pytest.mark.asyncio
@@ -26,6 +27,8 @@ async def test_seed_creates_one_tenant_and_user(seeded, db):
     user_count = (await db.execute(select(func.count(User.id)))).scalar_one()
     assert tenant_count == 1
     assert user_count == 1
+    tenant = (await db.execute(select(Tenant))).scalar_one()
+    assert tenant.name == SEED_TENANT_NAME
 
 
 async def test_seed_creates_personal_and_business_entity(seeded, db):

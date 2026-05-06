@@ -24,7 +24,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser
 from app.config import get_settings
-from app.errors import FinClawError, NotFoundError, RateLimitError
+from app.core.brand import AGENT_INTRO, DISPLAY_NAME, SHORT_NAME, TAGLINE
+from app.errors import MIAFError, NotFoundError, RateLimitError
 from app.models import Account, AuditLog, Customer, Entity, EntityMember, EntityMode
 from app.models.base import utcnow
 from app.schemas.agent import (
@@ -323,7 +324,9 @@ class OpenAIProvider(LLMProvider):
 
         tools = [_tool_to_openai_schema(tool) for tool in registry.list_tools()]
         system_parts = [
-            "You are FinClaw, an accounting-first financial agent.",
+            f"You are {DISPLAY_NAME}.",
+            f"Introduce yourself as: {AGENT_INTRO}",
+            f"Brand tagline: {TAGLINE}",
             "Use the provided tools to answer finance questions deterministically.",
             "Never invent numbers. Only tool outputs provide figures.",
         ]
@@ -411,7 +414,9 @@ class AnthropicProvider(LLMProvider):
             for tool in self._tool_registry.list_tools()
         ]
         system_lines = [
-            "You are FinClaw, an accounting-first financial agent.",
+            f"You are {DISPLAY_NAME}.",
+            f"Introduce yourself as: {AGENT_INTRO}",
+            f"Brand tagline: {TAGLINE}",
             "You may classify, draft journal entries, explain reports, and plan tool calls.",
             "You MUST NOT invent numbers. Only deterministic backend tool outputs are allowed to provide figures.",
             "Use typed tools when a request needs financial data, drafts, or calculations.",
@@ -472,8 +477,8 @@ class GeminiProvider(HeuristicProvider):
 class PolicyEngine:
     def check(self, tool_name: str) -> None:
         if tool_name in {"move_money", "execute_trade", "place_trade"}:
-            raise FinClawError(
-                "FinClaw cannot move real money or execute trades",
+            raise MIAFError(
+                f"{SHORT_NAME} cannot move real money or execute trades",
                 code="policy_blocked",
             )
 
@@ -782,7 +787,7 @@ async def _tool_suggest_investment_allocation(
     return {
         "entity_id": str(entity.id),
         "allocation_note": allocation,
-        "risk_disclaimer": "Educational only. FinClaw does not execute trades or guarantee returns.",
+        "risk_disclaimer": f"Educational only. {SHORT_NAME} does not execute trades or guarantee returns.",
     }
 
 
@@ -1258,7 +1263,7 @@ class AgentService:
                 result=result,
                 error=None,
             )
-        except FinClawError as exc:
+        except MIAFError as exc:
             await self.audit_logger.log_tool_call(
                 ctx,
                 tool_name=tool_name,
@@ -1279,10 +1284,15 @@ class AgentService:
         tool_calls: list[AgentToolCallOut],
         pending_confirmations: list[PendingConfirmationOut],
     ) -> str:
+        base = provider_message.strip()
+        if base:
+            base = f"{AGENT_INTRO} {base}"
+        else:
+            base = AGENT_INTRO
         if pending_confirmations:
-            return provider_message + " I prepared the draft action and left the sensitive step pending confirmation."
+            return base + " I prepared the draft action and left the sensitive step pending confirmation."
         if tool_calls:
             completed = [call.tool_name for call in tool_calls if call.status == "completed"]
             if completed:
-                return provider_message + f" Completed: {', '.join(completed)}."
-        return provider_message
+                return base + f" Completed: {', '.join(completed)}."
+        return base

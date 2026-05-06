@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 
 import { login } from "../_lib/api";
+import { brand } from "../_lib/brand";
 
 export default function LoginPage() {
   const [next, setNext] = useState("/dashboard");
@@ -44,13 +45,17 @@ export default function LoginPage() {
     <main className="grid min-h-screen bg-[var(--surface)] px-6 py-12 lg:grid-cols-[1.1fr_0.9fr]">
       <section className="flex flex-col justify-between rounded-[2rem] bg-[var(--hero)] p-8 text-[var(--hero-ink)]">
         <div>
-          <p className="text-xs uppercase tracking-[0.35em] text-[var(--hero-accent)]">FinClaw</p>
+          <p className="text-xs uppercase tracking-[0.35em] text-[var(--hero-accent)]">
+            {brand.displayName}
+          </p>
           <h1 className="mt-4 max-w-xl font-serif text-5xl leading-tight">
-            Financial control for one person, one business, one ledger spine.
+            {brand.agentIntro}
           </h1>
           <p className="mt-5 max-w-lg text-base text-[var(--hero-copy)]">
-            The application is now beyond scaffolding: personal dashboards, business reports,
-            journal controls, and document ingestion are already live on the API.
+            {brand.description}
+          </p>
+          <p className="mt-3 max-w-lg text-sm uppercase tracking-[0.2em] text-[var(--hero-accent)]">
+            {brand.tagline}
           </p>
         </div>
         <div className="grid gap-4 md:grid-cols-3">

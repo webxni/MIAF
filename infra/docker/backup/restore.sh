@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Restore a FinClaw backup dump into a target database.
+# Restore a MIAF backup dump into a target database.
 #
 # Usage:
 #   restore.sh <backup-file.sql.gz> [target_database]

@@ -5,7 +5,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 
-class FinClawError(Exception):
+class MIAFError(Exception):
     """Base for all domain exceptions. status_code set by subclasses."""
 
     status_code: int = 400
@@ -17,27 +17,27 @@ class FinClawError(Exception):
         self.details = details or {}
 
 
-class NotFoundError(FinClawError):
+class NotFoundError(MIAFError):
     status_code = 404
 
 
-class AuthError(FinClawError):
+class AuthError(MIAFError):
     status_code = 401
 
 
-class ForbiddenError(FinClawError):
+class ForbiddenError(MIAFError):
     status_code = 403
 
 
-class ConflictError(FinClawError):
+class ConflictError(MIAFError):
     status_code = 409
 
 
-class UnbalancedEntryError(FinClawError):
+class UnbalancedEntryError(MIAFError):
     status_code = 422
 
 
-class ImmutableEntryError(FinClawError):
+class ImmutableEntryError(MIAFError):
     status_code = 409
 
 
@@ -45,13 +45,13 @@ class TenantIsolationError(ForbiddenError):
     """Raised when a query crosses tenant or entity scope. Always a bug."""
 
 
-class RateLimitError(FinClawError):
+class RateLimitError(MIAFError):
     status_code = 429
 
 
 def install_error_handlers(app: FastAPI) -> None:
-    @app.exception_handler(FinClawError)
-    async def _finclaw_handler(_: Request, exc: FinClawError) -> JSONResponse:
+    @app.exception_handler(MIAFError)
+    async def _miaf_handler(_: Request, exc: MIAFError) -> JSONResponse:
         return JSONResponse(
             status_code=exc.status_code,
             content={

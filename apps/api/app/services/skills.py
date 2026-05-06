@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.errors import FinClawError, NotFoundError
+from app.errors import MIAFError, NotFoundError
 from app.models import EntityMode, SkillRunLog, SkillState
 from app.services.business import ap_aging, ar_aging, business_dashboard, closing_checklist, list_tax_reserves
 from app.services.heartbeat import list_reports
@@ -59,7 +59,7 @@ class LoadedSkill:
 def _require_permissions(skill: LoadedSkill, *required: str) -> None:
     missing = [permission for permission in required if permission not in skill.manifest.permissions]
     if missing:
-        raise FinClawError(
+        raise MIAFError(
             f"Skill {skill.manifest.name} is missing required permission(s): {missing}",
             code="skill_permission_denied",
             details={"skill_name": skill.manifest.name, "missing_permissions": missing},
@@ -78,7 +78,7 @@ def load_skill_manifests() -> list[LoadedSkill]:
         manifest = SkillManifest.model_validate(data)
         unknown = set(manifest.permissions) - _ALLOWED_PERMISSIONS
         if unknown:
-            raise FinClawError(
+            raise MIAFError(
                 f"Unknown skill permission(s): {sorted(unknown)}",
                 code="skill_permission_invalid",
             )
@@ -154,7 +154,7 @@ async def run_skill(
     ).scalar_one_or_none()
     enabled = state.enabled if state is not None else skill.builtin
     if not enabled:
-        raise FinClawError("Skill is disabled", code="skill_disabled")
+        raise MIAFError("Skill is disabled", code="skill_disabled")
 
     output_payload = await _execute_skill(db, tenant_id=tenant_id, entity_id=entity_id, skill=skill, input_payload=input_payload)
     row = SkillRunLog(
@@ -234,7 +234,7 @@ async def _execute_skill(
     if name == "emergency_fund_planner":
         _require_permissions(skill, "read_transactions", "read_reports")
         if entity_id is None:
-            raise FinClawError("entity_id is required", code="entity_required")
+            raise MIAFError("entity_id is required", code="entity_required")
         dashboard = await personal_dashboard(db, entity_id=entity_id, as_of=as_of)
         return {
             "emergency_fund_months": str(dashboard.emergency_fund_months),
@@ -244,7 +244,7 @@ async def _execute_skill(
     if name == "debt_payoff_planner":
         _require_permissions(skill, "read_transactions", "read_reports")
         if entity_id is None:
-            raise FinClawError("entity_id is required", code="entity_required")
+            raise MIAFError("entity_id is required", code="entity_required")
         debts = await list_debts(db, entity_id=entity_id)
         ordered = sorted(debts, key=lambda item: (item.interest_rate_apr or 0, item.current_balance), reverse=True)
         return {
@@ -261,7 +261,7 @@ async def _execute_skill(
     if name == "investment_allocator":
         _require_permissions(skill, "read_transactions", "read_reports")
         if entity_id is None:
-            raise FinClawError("entity_id is required", code="entity_required")
+            raise MIAFError("entity_id is required", code="entity_required")
         dashboard = await personal_dashboard(db, entity_id=entity_id, as_of=as_of)
         accounts = await list_investment_accounts(db, entity_id=entity_id)
         return {
@@ -280,7 +280,7 @@ async def _execute_skill(
     if name == "business_health_advisor":
         _require_permissions(skill, "read_transactions", "read_reports")
         if entity_id is None:
-            raise FinClawError("entity_id is required", code="entity_required")
+            raise MIAFError("entity_id is required", code="entity_required")
         dashboard = await business_dashboard(db, entity_id=entity_id, as_of=as_of)
         return {
             "cash_balance": str(dashboard.cash_balance),
@@ -292,7 +292,7 @@ async def _execute_skill(
     if name == "ar_collector":
         _require_permissions(skill, "read_reports", "send_messages")
         if entity_id is None:
-            raise FinClawError("entity_id is required", code="entity_required")
+            raise MIAFError("entity_id is required", code="entity_required")
         aging = await ar_aging(db, entity_id=entity_id, as_of=as_of)
         return {
             "customer_count": len(aging.rows),
@@ -303,7 +303,7 @@ async def _execute_skill(
     if name == "ap_scheduler":
         _require_permissions(skill, "read_reports", "send_messages")
         if entity_id is None:
-            raise FinClawError("entity_id is required", code="entity_required")
+            raise MIAFError("entity_id is required", code="entity_required")
         aging = await ap_aging(db, entity_id=entity_id, as_of=as_of)
         return {
             "vendor_count": len(aging.rows),
@@ -314,7 +314,7 @@ async def _execute_skill(
     if name == "tax_reserve_estimator":
         _require_permissions(skill, "read_reports")
         if entity_id is None:
-            raise FinClawError("entity_id is required", code="entity_required")
+            raise MIAFError("entity_id is required", code="entity_required")
         reserves = await list_tax_reserves(db, entity_id=entity_id)
         latest = reserves[0] if reserves else None
         return {
@@ -326,7 +326,7 @@ async def _execute_skill(
     if name == "monthly_close_assistant":
         _require_permissions(skill, "read_reports")
         if entity_id is None:
-            raise FinClawError("entity_id is required", code="entity_required")
+            raise MIAFError("entity_id is required", code="entity_required")
         checklist = await closing_checklist(db, entity_id=entity_id, as_of=as_of)
         return {
             "items": [item.model_dump(mode="json") for item in checklist.items],
@@ -335,7 +335,7 @@ async def _execute_skill(
     if name == "anomaly_detector":
         _require_permissions(skill, "read_reports")
         if entity_id is None:
-            raise FinClawError("entity_id is required", code="entity_required")
+            raise MIAFError("entity_id is required", code="entity_required")
         if mode == EntityMode.personal.value:
             dashboard = await personal_dashboard(db, entity_id=entity_id, as_of=as_of)
             anomalies: list[str] = []

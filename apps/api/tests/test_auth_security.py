@@ -28,7 +28,7 @@ async def test_successful_login_records_attempt_and_sets_cookie(seeded, db):
     assert user.email == seeded["user_email"]
     assert len(attempts) == 1
     assert attempts[0].was_successful is True
-    assert "finclaw_session=" in response.headers.get("set-cookie", "")
+    assert "miaf_session=" in response.headers.get("set-cookie", "")
 
 
 async def test_failed_login_is_audited_and_rate_limited(seeded, db):

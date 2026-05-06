@@ -21,6 +21,7 @@ from app.api.skills import router as skills_router
 from app.api.telegram import router as telegram_router
 from app.api.user_settings import router as user_settings_router
 from app.config import get_settings
+from app.core.brand import SHORT_NAME
 from app.errors import install_error_handlers
 from app.health import router as health_router
 from app.services.skills import load_skill_manifests
@@ -43,7 +44,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="FinClaw API",
+    title=f"{SHORT_NAME} API",
     version="0.1.0",
     lifespan=lifespan,
 )
@@ -79,4 +80,4 @@ app.include_router(user_settings_router)
 
 @app.get("/", tags=["meta"])
 def root() -> dict:
-    return {"name": "FinClaw API", "version": app.version, "env": settings.environment}
+    return {"name": f"{SHORT_NAME} API", "version": app.version, "env": settings.environment}

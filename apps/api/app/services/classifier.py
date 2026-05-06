@@ -6,7 +6,7 @@ from collections.abc import Callable
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.errors import FinClawError
+from app.errors import MIAFError
 from app.models import Account, AccountType, Memory, MemoryType, SourceTransaction
 from app.services.audit import write_audit
 
@@ -56,7 +56,7 @@ def classify_source_transaction(
     merchant = (tx.merchant or "").strip()
     expense_accounts = [account for account in accounts if account.type == AccountType.expense]
     if not expense_accounts:
-        raise FinClawError("no_expense_account", code="no_expense_account")
+        raise MIAFError("no_expense_account", code="no_expense_account")
 
     if memory_lookup is not None and merchant:
         remembered = memory_lookup(merchant)

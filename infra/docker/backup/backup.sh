@@ -10,7 +10,7 @@ set -euo pipefail
 : "${BACKUP_VERIFY:=1}"
 
 ts="$(date -u +%Y%m%dT%H%M%SZ)"
-out="/backups/finclaw_${ts}.sql.gz"
+out="/backups/miaf_${ts}.sql.gz"
 
 echo "[backup] dumping ${POSTGRES_DB}@${POSTGRES_HOST}:${POSTGRES_PORT} -> ${out}"
 
@@ -26,7 +26,7 @@ bytes="$(stat -c '%s' "$out")"
 echo "[backup] wrote ${bytes} bytes"
 
 if [ "$BACKUP_VERIFY" = "1" ]; then
-  verify_db="finclaw_verify_${ts}"
+  verify_db="miaf_verify_${ts}"
   echo "[backup] verifying restore into temporary database ${verify_db}"
 
   cleanup() {
@@ -67,5 +67,5 @@ if [ "$BACKUP_VERIFY" = "1" ]; then
 fi
 
 echo "[backup] pruning backups older than ${BACKUP_RETENTION_DAYS} days"
-find /backups -maxdepth 1 -type f -name 'finclaw_*.sql.gz' \
+find /backups -maxdepth 1 -type f -name 'miaf_*.sql.gz' \
   -mtime "+${BACKUP_RETENTION_DAYS}" -print -delete || true

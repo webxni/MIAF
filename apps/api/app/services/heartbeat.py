@@ -8,7 +8,7 @@ from decimal import Decimal
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.errors import FinClawError, NotFoundError
+from app.errors import MIAFError, NotFoundError
 from app.models import (
     Alert,
     AlertSeverity,
@@ -112,7 +112,7 @@ async def update_alert_status(
         raise NotFoundError(f"Alert {alert_id} not found", code="alert_not_found")
 
     if alert.status != AlertStatus.open or status not in {AlertStatus.resolved, AlertStatus.dismissed}:
-        raise FinClawError("invalid_alert_transition", code="invalid_alert_transition")
+        raise MIAFError("invalid_alert_transition", code="invalid_alert_transition")
 
     before = {
         "status": alert.status.value,
