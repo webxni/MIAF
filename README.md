@@ -64,6 +64,10 @@ make smoke
 
 The web UI lives at <http://localhost> and the API at <http://localhost/api>. The MinIO console is at <http://127.0.0.1:9001> in dev only.
 
+### Production deploy
+
+For a single-VM production deployment with Caddy TLS on a real domain, see [`docs/DEPLOY.md`](./docs/DEPLOY.md).
+
 ### Key Make targets
 
 | Target | What it does |
@@ -121,4 +125,4 @@ make prod-up
 
 The overlay removes dev source mounts, removes the MinIO console host binding, switches Caddy to a real domain (`CADDY_DOMAIN`) with auto HTTPS, and runs api/web in production mode (no `--reload`, Next.js prebuilt).
 
-Backups are written to the `backup_data` volume as `finclaw_<timestamp>.sql.gz` and pruned per `BACKUP_RETENTION_DAYS`. A restore script will land in Phase 12.
+Backups are written to the `backup_data` volume as `finclaw_<timestamp>.sql.gz` and pruned per `BACKUP_RETENTION_DAYS`. Use `infra/docker/backup/restore.sh` to restore a dump.

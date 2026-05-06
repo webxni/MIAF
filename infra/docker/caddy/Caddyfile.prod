@@ -2,11 +2,14 @@
 # the api and web upstreams. Auto HTTPS is on by default in Caddy.
 {
 	admin off
-	# email you@example.com   # set this for ACME registration in real prod
+	email {$CADDY_ADMIN_EMAIL}
 }
 
 {$CADDY_DOMAIN} {
 	encode zstd gzip
+	request_body {
+		max_size 25MB
+	}
 
 	# Basic security headers
 	header {
@@ -19,6 +22,7 @@
 	}
 
 	handle_path /api/* {
+		request_header X-Forwarded-Proto {scheme}
 		reverse_proxy api:8000
 	}
 
