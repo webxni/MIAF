@@ -71,16 +71,12 @@ async def get_current_user(
     request: Request,
     db: DB,
     miaf_session: Annotated[str | None, Cookie()] = None,
-    finclaw_session: Annotated[str | None, Cookie()] = None,
 ) -> CurrentUser:
     settings = get_settings()
     cookie_name = settings.session_cookie_name
-    # Prefer the configured cookie name, but accept the legacy finclaw_session
-    # during the rebrand so existing sessions do not break immediately.
-    if cookie_name == "miaf_session":
-        token = miaf_session or finclaw_session
-    else:
-        token = request.cookies.get(cookie_name) or miaf_session or finclaw_session
+    # The default arg name `miaf_session` matches the default cookie name,
+    # but if the deployment overrides SESSION_COOKIE_NAME we read from headers.
+    token = miaf_session if cookie_name == "miaf_session" else request.cookies.get(cookie_name)
     if not token:
         raise AuthError("Authentication required", code="not_authenticated")
     session, user = await resolve_session_token(db, token)

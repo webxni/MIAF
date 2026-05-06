@@ -8,7 +8,7 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 from app.config import get_settings
 
-_FERNET_INFO = b"finclaw-user-settings-fernet"
+_FERNET_INFO = b"miaf-user-settings-fernet"
 
 
 def derive_fernet_key(secret_key: str) -> bytes:
