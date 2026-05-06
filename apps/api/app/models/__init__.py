@@ -77,6 +77,7 @@ from app.models.telegram import (
     TelegramMessageStatus,
     TelegramMessageType,
 )
+from app.models.tailscale import TailscaleMode, TailscaleSettings
 from app.models.user import User
 from app.models.user_settings import UserSettings
 
@@ -152,6 +153,8 @@ __all__ = [
     "TelegramMessageDirection",
     "TelegramMessageStatus",
     "TelegramMessageType",
+    "TailscaleMode",
+    "TailscaleSettings",
     "User",
     "UserSettings",
     "Vendor",

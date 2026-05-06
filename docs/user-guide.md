@@ -9,6 +9,7 @@ MIAF helps you manage personal finances, small business accounting, and owner fi
 1. Navigate to `/onboarding` to create your owner account and workspace.
 2. Your workspace has two entities: **Personal** and **Business**. Use the entity switcher in the sidebar to switch context.
 3. Upload receipts or import CSV transactions from the **Documents** page to start building your ledger.
+4. Configure your AI provider in `/settings` before expecting external-model responses from the agent.
 
 ## Agent chat (`/agent`)
 
@@ -48,9 +49,78 @@ The heartbeat scheduler runs daily, weekly, and monthly checks on your finances 
 
 Dismiss alerts you have acted on, or resolve them when the underlying issue is fixed.
 
+## Reports
+
+MIAF currently has two report surfaces:
+
+- `/business/reports`
+- `/alerts` plus the heartbeat report API
+
+### Business reports (`/business/reports`)
+
+This page reads deterministic numbers from the posted ledger and shows:
+
+- balance sheet
+- income statement for the current month-to-date window
+- AR aging
+- AP aging
+
+Use this page when you want formal accounting output from posted entries rather than AI interpretation.
+
+### Heartbeat-generated reports
+
+Heartbeat runs can also create generated reports in the backend. The app currently exposes heartbeat alerts directly in the UI and recent alert summaries on the dashboard. The underlying report list is available from `/api/heartbeat/reports`.
+
+Today, the end-user workflow is:
+
+1. Review alerts in `/alerts`.
+2. Open `/business/reports` for formal business statement output.
+3. Use `/agent` to ask for explanation or comparison of the current numbers.
+
 ## Memory
 
-The agent can remember contextual notes about your finances (spending patterns, goals, preferences). Memory is consent-gated — the agent will always ask before saving anything. You can review, expire, or delete any memory from the API.
+The agent can remember contextual notes about your finances (spending patterns, goals, preferences). Memory is consent-gated — the agent will always ask before saving anything.
+
+### Memory workspace (`/memory`)
+
+Use `/memory` to:
+
+- create a new memory with explicit consent
+- search active memories
+- review a memory as accepted, needs update, or archived
+- expire a memory
+- delete a memory
+
+The memory list also shows system-learned merchant rules when MIAF learns from your draft-entry corrections after CSV imports.
+
+Sensitive credentials such as passwords and API keys are blocked from memory storage.
+
+## Telegram (`/telegram`)
+
+MIAF includes a Telegram integration backend and a simple management screen in `/telegram`.
+
+Use it to:
+
+- link a Telegram user and chat ID to your workspace
+- route personal mode to one entity and business mode to another
+- choose the currently active mode
+- inspect recent inbound and outbound Telegram message logs
+
+Current command support:
+
+- `/start`
+- `/personal`
+- `/business`
+- `/summary`
+- `/budget`
+- `/cash`
+- `/help`
+
+Current limitations:
+
+- there is no full bot provisioning wizard in the app
+- you still need a Telegram bot or webhook sender outside the UI to deliver inbound messages to the backend webhook
+- voice note handling is still placeholder behavior
 
 ## Disclaimer
 

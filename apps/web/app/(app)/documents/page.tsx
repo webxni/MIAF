@@ -4,28 +4,28 @@ import { ChangeEvent, useEffect, useMemo, useState } from "react";
 
 import { SectionCard } from "../../_components/cards";
 import {
+  answerDocumentQuestion,
   ApiRequestError,
+  classifyDocument,
+  createDraftFromDocument,
   deleteJournalEntry,
   entities,
   findEntityByMode,
+  ingestText,
   listAccounts,
+  listDocuments,
   listPendingDrafts,
   postJournalEntry,
+  rejectDocument,
+  uploadDocument,
   updateJournalEntry,
   type Account,
+  type DocumentUploadResult,
   type Entity,
   type JournalLineInput,
   type PendingDraft,
+  type StoredDocument,
 } from "../../_lib/api";
-
-type UploadResult = {
-  attachment: { filename: string; id: string };
-  extraction?: {
-    confidence_score?: string | null;
-    extracted_data?: Record<string, { value: string | null; confidence: string } | string>;
-  };
-  batch?: { rows_imported: number; rows_total: number };
-};
 
 type DraftEntityState = {
   entity: Entity;
@@ -66,8 +66,12 @@ function errorMessage(error: unknown, fallback: string): string {
 export default function DocumentsPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [textBusy, setTextBusy] = useState(false);
+  const [textEntry, setTextEntry] = useState("");
   const [pendingSections, setPendingSections] = useState<DraftEntityState[] | null>(null);
   const [pendingError, setPendingError] = useState<string | null>(null);
+  const [documents, setDocuments] = useState<StoredDocument[] | null>(null);
+  const [documentsError, setDocumentsError] = useState<string | null>(null);
   const [rowState, setRowState] = useState<Record<string, DraftRowState>>({});
 
   async function loadPendingDrafts(activeRef?: { current: boolean }) {
@@ -114,9 +118,31 @@ export default function DocumentsPage() {
     }
   }
 
+  async function loadDocuments(activeRef?: { current: boolean }) {
+    try {
+      setDocumentsError(null);
+      const allEntities = await entities();
+      if (activeRef && !activeRef.current) return;
+      const entity = allEntities[0];
+      if (!entity) {
+        setDocuments([]);
+        return;
+      }
+      const rows = await listDocuments({ entity_id: entity.id, limit: 20 });
+      if (activeRef && !activeRef.current) return;
+      setDocuments(rows);
+    } catch (error) {
+      if (!activeRef || activeRef.current) {
+        setDocumentsError(errorMessage(error, "Failed to load documents"));
+        setDocuments([]);
+      }
+    }
+  }
+
   useEffect(() => {
     const activeRef = { current: true };
     void loadPendingDrafts(activeRef);
+    void loadDocuments(activeRef);
     return () => {
       activeRef.current = false;
     };
@@ -127,7 +153,7 @@ export default function DocumentsPage() {
     [pendingSections],
   );
 
-  async function upload(kind: "receipts" | "csv-imports", file: File) {
+  async function upload(file: File) {
     setBusy(true);
     setMessage(null);
     try {
@@ -136,28 +162,8 @@ export default function DocumentsPage() {
       if (!entity) {
         throw new Error("No entity available");
       }
-      const form = new FormData();
-      form.append("file", file);
-      const response = await fetch(`/api/entities/${entity.id}/documents/${kind}`, {
-        method: "POST",
-        credentials: "include",
-        body: form,
-      });
-      const body = (await response.json()) as UploadResult | { error?: { message?: string } };
-      if (!response.ok) {
-        throw new Error("error" in body ? body.error?.message ?? "Upload failed" : "Upload failed");
-      }
-      if (kind === "receipts" && "attachment" in body) {
-        const reason = body.extraction?.extracted_data?.reason;
-        if (reason === "pdf_not_supported_yet") {
-          setMessage(`Receipt ${body.attachment.filename} uploaded and queued for review. PDF OCR is not supported yet.`);
-        } else {
-          setMessage(`Receipt ${body.attachment.filename} uploaded and parsed.`);
-        }
-      } else if (kind === "csv-imports" && "batch" in body) {
-        setMessage(`Imported ${body.batch?.rows_imported ?? 0} of ${body.batch?.rows_total ?? 0} rows.`);
-        await loadPendingDrafts();
-      }
+      const body = await uploadDocument(entity.id, file);
+      handleUploadResult(body, file.name);
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Upload failed");
     } finally {
@@ -165,14 +171,99 @@ export default function DocumentsPage() {
     }
   }
 
+  function handleUploadResult(body: DocumentUploadResult, fallbackName: string) {
+    if (body.stored_document) {
+      const warningText = body.warnings.length ? ` Warnings: ${body.warnings.join("; ")}` : "";
+      const questions = body.stored_document.extracted_items[0]?.questions.length ?? 0;
+      setMessage(
+        `${body.stored_document.attachment.filename || fallbackName} uploaded as ${body.input_type}.` +
+          ` Confidence: ${body.stored_document.extracted_items[0]?.confidence_level ?? "low"}.` +
+          (questions ? ` ${questions} question${questions === 1 ? "" : "s"} need review.` : "") +
+          warningText,
+      );
+      setDocuments((current) =>
+        current
+          ? [body.stored_document!, ...current.filter((item) => item.attachment.id !== body.stored_document!.attachment.id)]
+          : [body.stored_document!],
+      );
+    } else if (body.csv_import) {
+      setMessage(
+        `Imported ${body.csv_import.batch.rows_imported} of ${body.csv_import.batch.rows_total} rows.` +
+          (body.csv_import.batch.error_message ? ` ${body.csv_import.batch.error_message}` : ""),
+      );
+      void loadPendingDrafts();
+      void loadDocuments();
+    }
+  }
+
   function onReceiptChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
-    if (file) void upload("receipts", file);
+    if (file) void upload(file);
   }
 
   function onCsvChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
-    if (file) void upload("csv-imports", file);
+    if (file) void upload(file);
+  }
+
+  async function handleTextIngest() {
+    if (!textEntry.trim()) return;
+    setTextBusy(true);
+    setMessage(null);
+    try {
+      const allEntities = await entities();
+      const entity = allEntities[0];
+      if (!entity) throw new Error("No entity available");
+      const result = await ingestText(entity.id, textEntry.trim());
+      setDocuments((current) =>
+        current
+          ? [result.stored_document, ...current.filter((item) => item.attachment.id !== result.stored_document.attachment.id)]
+          : [result.stored_document],
+      );
+      setTextEntry("");
+      setMessage("Text note ingested into the review queue.");
+    } catch (error) {
+      setMessage(errorMessage(error, "Failed to ingest text"));
+    } finally {
+      setTextBusy(false);
+    }
+  }
+
+  async function handleDocumentAction(attachmentId: string, action: "classify" | "draft" | "reject" | "answer") {
+    try {
+      if (action === "classify") {
+        const updated = await classifyDocument(attachmentId);
+        setDocuments((current) => current?.map((item) => (item.attachment.id === attachmentId ? updated : item)) ?? current);
+        setMessage("Document reclassified.");
+        return;
+      }
+      if (action === "draft") {
+        await createDraftFromDocument(attachmentId);
+        setMessage("Draft journal entry created from document.");
+        await loadPendingDrafts();
+        await loadDocuments();
+        return;
+      }
+      if (action === "reject") {
+        const updated = await rejectDocument(attachmentId);
+        setDocuments((current) => current?.map((item) => (item.attachment.id === attachmentId ? updated : item)) ?? current);
+        setMessage("Document marked as rejected.");
+        return;
+      }
+      const document = documents?.find((item) => item.attachment.id === attachmentId) ?? null;
+      const firstQuestion = document?.extracted_items[0]?.questions[0] ?? null;
+      if (!firstQuestion) {
+        setMessage("No open question found for this document.");
+        return;
+      }
+      const answer = window.prompt(firstQuestion.question);
+      if (!answer?.trim()) return;
+      const updated = await answerDocumentQuestion(attachmentId, firstQuestion.code, answer.trim());
+      setDocuments((current) => current?.map((item) => (item.attachment.id === attachmentId ? updated : item)) ?? current);
+      setMessage("Question answered and document reclassified.");
+    } catch (error) {
+      setMessage(errorMessage(error, "Document action failed"));
+    }
   }
 
   function setDraftState(draftId: string, patch: Partial<DraftRowState>) {
@@ -262,8 +353,8 @@ export default function DocumentsPage() {
       <div className="grid gap-6 xl:grid-cols-2">
         <SectionCard title="Receipt upload" description="Uploads into the Phase 4 document ingestion pipeline.">
           <label className="inline-flex cursor-pointer rounded-xl bg-[var(--accent)] px-4 py-3 font-semibold text-[var(--accent-ink)]">
-            <input type="file" accept=".txt,.pdf,.png,.jpg,.jpeg,.webp" className="hidden" onChange={onReceiptChange} disabled={busy} />
-            {busy ? "Uploading…" : "Upload receipt"}
+            <input type="file" accept=".txt,.pdf,.png,.jpg,.jpeg,.webp,.mp3,.m4a,.wav,.ogg" className="hidden" onChange={onReceiptChange} disabled={busy} />
+            {busy ? "Uploading…" : "Upload document"}
           </label>
         </SectionCard>
 
@@ -274,6 +365,146 @@ export default function DocumentsPage() {
           </label>
         </SectionCard>
       </div>
+
+      <SectionCard
+        title="Manual text entry"
+        description="Use this for chat-like spending notes or manual dashboard capture when you do not have a file."
+      >
+        <div className="space-y-3">
+          <textarea
+            className="min-h-28 w-full rounded-2xl border border-[var(--line)] bg-[var(--surface)] px-4 py-3 text-sm"
+            value={textEntry}
+            onChange={(event) => setTextEntry(event.target.value)}
+            placeholder="Examples: I spent $25 on gas today. Business paid $120 for internet. Client paid invoice 1003."
+            disabled={textBusy}
+          />
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={() => void handleTextIngest()}
+              disabled={textBusy || !textEntry.trim()}
+              className="rounded-xl bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-[var(--accent-ink)] disabled:opacity-60"
+            >
+              {textBusy ? "Ingesting…" : "Ingest text note"}
+            </button>
+          </div>
+        </div>
+      </SectionCard>
+
+      <SectionCard
+        title="Recent documents"
+        description="Uploaded files remain untrusted until extracted, classified, and reviewed."
+      >
+        {documentsError ? (
+          <div className="rounded-xl border border-[var(--danger-line)] bg-[var(--danger-bg)] px-4 py-3 text-sm text-[var(--danger-ink)]">
+            {documentsError}
+          </div>
+        ) : documents === null ? (
+          <p className="text-sm text-[var(--muted)]">Loading…</p>
+        ) : documents.length === 0 ? (
+          <p className="text-sm text-[var(--muted)]">No uploaded documents yet.</p>
+        ) : (
+          <div className="space-y-4">
+            {documents.map((document) => {
+              const item = document.extracted_items[0] ?? null;
+              const duplicate = document.extraction?.duplicate_detected ?? false;
+              return (
+                <article key={document.attachment.id} className="rounded-2xl bg-[var(--surface)] p-4">
+                  <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-medium">{document.attachment.filename}</p>
+                        <span className="rounded-full bg-[var(--panel)] px-3 py-1 text-xs uppercase tracking-[0.2em] text-[var(--muted)]">
+                          {document.attachment.content_type}
+                        </span>
+                        {document.extraction ? (
+                          <span className="rounded-full bg-[var(--panel)] px-3 py-1 text-xs uppercase tracking-[0.2em] text-[var(--muted)]">
+                            {document.extraction.status}
+                          </span>
+                        ) : null}
+                        {item ? (
+                          <span className="rounded-full bg-[var(--panel)] px-3 py-1 text-xs uppercase tracking-[0.2em] text-[var(--muted)]">
+                            {item.detected_document_type}
+                          </span>
+                        ) : null}
+                        {duplicate ? (
+                          <span className="rounded-full bg-[var(--danger-bg)] px-3 py-1 text-xs uppercase tracking-[0.2em] text-[var(--danger-ink)]">
+                            duplicate
+                          </span>
+                        ) : null}
+                      </div>
+                      <p className="mt-2 text-sm text-[var(--muted)]">
+                        {item?.amount ? displayMoney(item.amount, item.currency) : "No amount"} ·{" "}
+                        {item?.date ?? "No date"} · {item?.candidate_entity_type ?? "unknown entity"}
+                      </p>
+                      <p className="mt-2 text-sm text-[var(--muted)]">
+                        {item?.merchant ?? item?.vendor ?? item?.customer ?? "No merchant/vendor/customer detected"}
+                      </p>
+                      <p className="mt-2 text-sm">
+                        Confidence: {item?.confidence_level ?? "low"}
+                        {item?.questions.length ? ` · ${item.questions.length} open question${item.questions.length === 1 ? "" : "s"}` : ""}
+                        {document.candidate?.rationale ? ` · ${document.candidate.rationale}` : ""}
+                      </p>
+                      {item?.raw_text_reference ? (
+                        <pre className="mt-3 overflow-x-auto rounded-xl bg-[var(--panel)] p-3 text-xs text-[var(--muted)]">
+                          {item.raw_text_reference}
+                        </pre>
+                      ) : null}
+                      {item?.questions.length ? (
+                        <div className="mt-3 space-y-2">
+                          {item.questions.map((question) => (
+                            <div key={`${document.attachment.id}-${question.code}`} className="rounded-xl border border-[var(--line)] bg-[var(--panel)] px-3 py-2 text-sm">
+                              {question.question}
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2 xl:justify-end">
+                      <button
+                        type="button"
+                        onClick={() => void handleDocumentAction(document.attachment.id, "classify")}
+                        className="rounded-xl border border-[var(--line)] px-3 py-2 text-sm font-semibold"
+                      >
+                        Reclassify
+                      </button>
+                      {item?.questions.length ? (
+                        <button
+                          type="button"
+                          onClick={() => void handleDocumentAction(document.attachment.id, "answer")}
+                          className="rounded-xl border border-[var(--line)] px-3 py-2 text-sm font-semibold"
+                        >
+                          Answer question
+                        </button>
+                      ) : null}
+                      {document.candidate ? (
+                        <button
+                          type="button"
+                          onClick={() => void handleDocumentAction(document.attachment.id, "draft")}
+                          className="rounded-xl bg-[var(--accent)] px-3 py-2 text-sm font-semibold text-[var(--accent-ink)]"
+                        >
+                          Create draft
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() => void handleDocumentAction(document.attachment.id, "reject")}
+                        className="rounded-xl border border-[var(--line)] px-3 py-2 text-sm font-semibold"
+                      >
+                        Reject
+                      </button>
+                      <a href="/audit-log" className="rounded-xl border border-[var(--line)] px-3 py-2 text-sm font-semibold">
+                        Audit trail
+                      </a>
+                    </div>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </SectionCard>
 
       <SectionCard
         title="Pending drafts"

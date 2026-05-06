@@ -177,3 +177,45 @@ async def test_skill_permission_manifest_is_enforced(seeded, db, monkeypatch):
         )
 
     assert exc.value.code == "skill_permission_denied"
+
+
+async def test_skill_requires_confirmation_blocks_without_flag(seeded, db, monkeypatch):
+    tenant_id = uuid.UUID(seeded["tenant_id"])
+    user_id = uuid.UUID(seeded["user_id"])
+    business_entity_id = uuid.UUID(seeded["business_entity_id"])
+
+    manifests = load_skill_manifests()
+    high_risk = next((s for s in manifests if s.manifest.requires_confirmation), None)
+    if high_risk is None:
+        pytest.skip("no skill with requires_confirmation=true found")
+
+    result_log = await run_skill(
+        db,
+        tenant_id=tenant_id,
+        user_id=user_id,
+        entity_id=business_entity_id,
+        skill_name=high_risk.manifest.name,
+        input_payload={},
+    )
+    assert result_log.output_payload.get("status") == "confirmation_required"
+
+
+async def test_skill_requires_confirmation_runs_with_flag(seeded, db, monkeypatch):
+    tenant_id = uuid.UUID(seeded["tenant_id"])
+    user_id = uuid.UUID(seeded["user_id"])
+    business_entity_id = uuid.UUID(seeded["business_entity_id"])
+
+    manifests = load_skill_manifests()
+    high_risk = next((s for s in manifests if s.manifest.requires_confirmation), None)
+    if high_risk is None:
+        pytest.skip("no skill with requires_confirmation=true found")
+
+    result_log = await run_skill(
+        db,
+        tenant_id=tenant_id,
+        user_id=user_id,
+        entity_id=business_entity_id,
+        skill_name=high_risk.manifest.name,
+        input_payload={"confirmed": True},
+    )
+    assert result_log.output_payload.get("status") != "confirmation_required"

@@ -4,10 +4,15 @@ import { FormEvent, useEffect, useState } from "react";
 
 import { SectionCard } from "../../_components/cards";
 import {
+  checkTailscaleStatus,
   getSettings,
+  getTailscaleSettings,
   me,
+  resetTailscaleServe,
+  startTailscaleServe,
   updateSettings,
   type AIProvider,
+  type TailscaleLiveStatus,
   type User,
   type UserSettings,
 } from "../../_lib/api";
@@ -36,6 +41,10 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
+  const [tailscale, setTailscale] = useState<TailscaleLiveStatus | null>(null);
+  const [tsLoading, setTsLoading] = useState(false);
+  const [tsError, setTsError] = useState<string | null>(null);
+
   useEffect(() => {
     let active = true;
     Promise.all([me(), getSettings()])
@@ -53,6 +62,27 @@ export default function SettingsPage() {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    getTailscaleSettings()
+      .then((status) => { if (active) setTailscale(status); })
+      .catch(() => { /* silently ignore if endpoint not yet accessible */ });
+    return () => { active = false; };
+  }, []);
+
+  async function handleTsAction(action: () => Promise<TailscaleLiveStatus>) {
+    setTsLoading(true);
+    setTsError(null);
+    try {
+      const status = await action();
+      setTailscale(status);
+    } catch (err) {
+      setTsError(err instanceof Error ? err.message : "Tailscale action failed");
+    } finally {
+      setTsLoading(false);
+    }
+  }
 
   function hydrate(nextUser: User, nextSettings: UserSettings) {
     setUser(nextUser);
@@ -292,6 +322,124 @@ export default function SettingsPage() {
           </button>
         </div>
       </form>
+
+      <SectionCard
+        title="Tailscale private access"
+        description="Access MIAF from your phone over a private Tailscale network. Tailscale Serve keeps traffic inside your tailnet — it is not public internet access."
+      >
+        {tsError ? (
+          <div className="mb-4 rounded-xl border border-[var(--danger-line)] bg-[var(--danger-bg)] px-4 py-3 text-sm text-[var(--danger-ink)]">
+            {tsError}
+          </div>
+        ) : null}
+
+        {tailscale ? (
+          <div className="space-y-4">
+            <div className="grid gap-3 sm:grid-cols-2 text-sm">
+              <div>
+                <span className="font-medium">Binary: </span>
+                <span className={tailscale.binary_available ? "text-emerald-600" : "text-[var(--muted)]"}>
+                  {tailscale.binary_available ? "Available" : "Not found — run commands manually"}
+                </span>
+              </div>
+              <div>
+                <span className="font-medium">Tailscale IP: </span>
+                <span className="font-mono">{tailscale.tailscale_ip ?? "—"}</span>
+              </div>
+              <div>
+                <span className="font-medium">Hostname: </span>
+                <span className="font-mono">{tailscale.hostname ?? "—"}</span>
+              </div>
+              <div>
+                <span className="font-medium">Private URL: </span>
+                {tailscale.private_url ? (
+                  <a
+                    href={tailscale.private_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-mono text-[var(--accent)] hover:underline"
+                  >
+                    {tailscale.private_url}
+                  </a>
+                ) : (
+                  <span className="text-[var(--muted)]">—</span>
+                )}
+              </div>
+            </div>
+
+            {tailscale.warnings.length > 0 ? (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 space-y-1">
+                {tailscale.warnings.map((w, i) => <p key={i}>{w}</p>)}
+              </div>
+            ) : null}
+
+            {tailscale.serve_status ? (
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-widest text-[var(--muted)] mb-1">Serve status</p>
+                <pre className="rounded-xl bg-[var(--surface)] border border-[var(--line)] px-3 py-3 text-xs overflow-x-auto whitespace-pre-wrap">
+                  {tailscale.serve_status}
+                </pre>
+              </div>
+            ) : null}
+
+            {tailscale.instructions_only ? (
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-widest text-[var(--muted)] mb-2">Manual setup</p>
+                <ol className="space-y-1 text-sm text-[var(--ink)]">
+                  {tailscale.setup_instructions.map((step, i) => (
+                    <li key={i} className="flex gap-2">
+                      <span className="shrink-0 text-[var(--muted)]">{i + 1}.</span>
+                      <span>{step}</span>
+                    </li>
+                  ))}
+                </ol>
+                <p className="mt-3 text-xs font-semibold uppercase tracking-widest text-[var(--muted)] mb-1">Commands to copy</p>
+                <div className="space-y-1">
+                  {Object.entries(tailscale.manual_commands).map(([key, cmd]) => (
+                    <div key={key} className="rounded-lg bg-[var(--surface)] border border-[var(--line)] px-3 py-2">
+                      <p className="text-xs text-[var(--muted)] mb-0.5">{key}</p>
+                      <code className="text-xs font-mono">{cmd}</code>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            <div className="flex flex-wrap gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => handleTsAction(checkTailscaleStatus)}
+                disabled={tsLoading}
+                className="rounded-xl border border-[var(--line)] px-4 py-2 text-sm hover:bg-[var(--surface)] disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {tsLoading ? "Checking…" : "Check status"}
+              </button>
+              {tailscale.binary_available ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => handleTsAction(startTailscaleServe)}
+                    disabled={tsLoading}
+                    className="rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm text-emerald-800 hover:bg-emerald-100 disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    Start Serve
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleTsAction(resetTailscaleServe)}
+                    disabled={tsLoading}
+                    className="rounded-xl border border-[var(--danger-line)] bg-[var(--danger-bg)] px-4 py-2 text-sm text-[var(--danger-ink)] hover:opacity-90 disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    Reset Serve
+                  </button>
+                </>
+              ) : null}
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-[var(--muted)]">Loading Tailscale status…</p>
+        )}
+      </SectionCard>
     </div>
   );
 }

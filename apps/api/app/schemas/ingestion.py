@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -139,3 +140,90 @@ class PendingDraftOut(BaseModel):
 class DownloadUrlOut(BaseModel):
     attachment_id: uuid.UUID
     url: str
+
+
+DocumentInputType = Literal["text", "csv", "pdf", "image", "audio", "unsupported"]
+DetectedDocumentType = Literal[
+    "receipt",
+    "invoice",
+    "bill",
+    "bank_transaction",
+    "audio_note",
+    "text_note",
+    "unknown",
+]
+CandidateEntityType = Literal["personal", "business", "unknown"]
+ConfidenceLevel = Literal["high", "medium", "low"]
+
+
+class ExtractedFinancialQuestion(BaseModel):
+    code: str
+    question: str
+    status: str = "open"
+    answer: str | None = None
+
+
+class CandidateAccountOut(BaseModel):
+    account_id: uuid.UUID | None = None
+    code: str | None = None
+    name: str | None = None
+    reason: str | None = None
+
+
+class ExtractedFinancialItem(BaseModel):
+    source_id: str | None = None
+    source_type: str
+    detected_document_type: DetectedDocumentType
+    date: str | None = None
+    amount: str | None = None
+    currency: str | None = None
+    merchant: str | None = None
+    vendor: str | None = None
+    customer: str | None = None
+    description: str | None = None
+    line_items: list[dict] = Field(default_factory=list)
+    tax_amount: str | None = None
+    payment_method: str | None = None
+    candidate_entity_type: CandidateEntityType = "unknown"
+    candidate_accounts: list[CandidateAccountOut] = Field(default_factory=list)
+    confidence: Decimal = Decimal("0.0000")
+    confidence_level: ConfidenceLevel = "low"
+    missing_fields: list[str] = Field(default_factory=list)
+    questions: list[ExtractedFinancialQuestion] = Field(default_factory=list)
+    raw_text_reference: str | None = None
+    file_id: str | None = None
+    audit_id: str | None = None
+
+
+class StoredDocumentOut(BaseModel):
+    attachment: AttachmentOut
+    extraction: DocumentExtractionOut | None = None
+    candidate: ExtractionCandidateOut | None = None
+    batch: ImportBatchOut | None = None
+    extracted_items: list[ExtractedFinancialItem] = Field(default_factory=list)
+
+
+class DocumentUploadOut(BaseModel):
+    input_type: DocumentInputType
+    stored_document: StoredDocumentOut | None = None
+    csv_import: CsvImportOut | None = None
+    warnings: list[str] = Field(default_factory=list)
+
+
+class DocumentQuestionAnswerIn(BaseModel):
+    code: str = Field(min_length=1, max_length=100)
+    answer: str = Field(min_length=1, max_length=1000)
+
+
+class DocumentQuestionListOut(BaseModel):
+    attachment_id: uuid.UUID
+    questions: list[ExtractedFinancialQuestion]
+
+
+class TextIngestionIn(BaseModel):
+    entity_id: uuid.UUID
+    text: str = Field(min_length=1, max_length=4000)
+
+
+class TextIngestionOut(BaseModel):
+    stored_document: StoredDocumentOut

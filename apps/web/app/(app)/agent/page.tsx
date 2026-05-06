@@ -7,6 +7,7 @@ import {
   ApiRequestError,
   chatWithAgent,
   type AgentToolCall,
+  type ConversationMessage,
   type PendingConfirmation,
 } from "../../_lib/api";
 import { brand } from "../../_lib/brand";
@@ -33,6 +34,18 @@ export default function AgentPage() {
 
   const hasMessages = messages.length > 0;
 
+  function buildHistory(currentMessages: ChatMessage[]): ConversationMessage[] {
+    const history: ConversationMessage[] = [];
+    for (const msg of currentMessages) {
+      if (msg.role === "user") {
+        history.push({ role: "user", content: msg.text });
+      } else if (msg.role === "agent" && msg.text) {
+        history.push({ role: "assistant", content: msg.text });
+      }
+    }
+    return history.slice(-20);
+  }
+
   const pendingCount = useMemo(
     () => messages.reduce((count, message) => count + (message.confirmations?.length ?? 0), 0),
     [messages],
@@ -43,10 +56,14 @@ export default function AgentPage() {
     const userText = payloadMessage.trim();
     setSubmitting(true);
     setError(null);
-    setMessages((current) => [...current, { role: "user", text: userText }]);
+    let history: ConversationMessage[] = [];
+    setMessages((current) => {
+      history = buildHistory(current);
+      return [...current, { role: "user", text: userText }];
+    });
     setInput("");
     try {
-      const response = await chatWithAgent({ message: userText });
+      const response = await chatWithAgent({ message: userText, conversation_history: history });
       setMessages((current) => [
         ...current,
         {
@@ -72,17 +89,16 @@ export default function AgentPage() {
   async function handleConfirm(target: PendingConfirmation) {
     setSubmitting(true);
     setError(null);
-    setMessages((current) => [
-      ...current,
-      {
-        role: "user",
-        text: "Confirm.",
-      },
-    ]);
+    let history: ConversationMessage[] = [];
+    setMessages((current) => {
+      history = buildHistory(current);
+      return [...current, { role: "user", text: "Confirm." }];
+    });
     try {
       const response = await chatWithAgent({
         message: "Confirm.",
         confirmations: [{ tool_name: target.tool_name, arguments: target.arguments }],
+        conversation_history: history,
       });
       setMessages((current) =>
         current.map((message) =>

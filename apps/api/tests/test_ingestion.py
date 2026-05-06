@@ -252,3 +252,127 @@ async def test_pending_drafts_endpoint_returns_source_context(client: AsyncClien
     assert body[0]["source"]["posted_at"].startswith("2026-05-02T00:00:00")
     assert len(body[0]["lines"]) == 2
     assert body[1]["source"]["merchant"] == "Shell"
+
+
+async def test_global_upload_rejects_unsupported_file_type(client: AsyncClient, seeded: dict) -> None:
+    await _login_seeded_owner(client, seeded)
+    entity_id = seeded["personal_entity_id"]
+
+    response = await client.post(
+        "/documents/upload",
+        data={"entity_id": entity_id},
+        files={"file": ("malware.exe", b"MZ...", "application/x-msdownload")},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "unsupported_file_type"
+
+
+async def test_global_upload_rejects_file_too_large(client: AsyncClient, seeded: dict) -> None:
+    await _login_seeded_owner(client, seeded)
+    entity_id = seeded["personal_entity_id"]
+
+    response = await client.post(
+        "/documents/upload",
+        data={"entity_id": entity_id},
+        files={"file": ("big.txt", b"a" * (11 * 1024 * 1024), "text/plain")},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "file_too_large"
+
+
+async def test_ingest_text_creates_low_confidence_question_for_personal_business_ambiguity(client: AsyncClient, seeded: dict, db) -> None:
+    await _login_seeded_owner(client, seeded)
+    entity_id = seeded["personal_entity_id"]
+
+    response = await client.post(
+        "/ingest/text",
+        json={
+            "entity_id": entity_id,
+            "text": "I bought supplies for the business on my personal card.",
+        },
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    item = body["stored_document"]["extracted_items"][0]
+    assert item["confidence_level"] == "low"
+    assert any(question["code"] == "personal_business_ambiguous" for question in item["questions"])
+
+    attachment_id = body["stored_document"]["attachment"]["id"]
+    answer = await client.post(
+        f"/documents/{attachment_id}/answer-question",
+        json={"code": "personal_business_ambiguous", "answer": "Business"},
+    )
+    assert answer.status_code == 200
+    answered_item = answer.json()["extracted_items"][0]
+    assert answered_item["candidate_entity_type"] == "business"
+
+
+async def test_audio_upload_creates_review_only_placeholder(client: AsyncClient, seeded: dict) -> None:
+    await _login_seeded_owner(client, seeded)
+    entity_id = seeded["personal_entity_id"]
+
+    response = await client.post(
+        "/documents/upload",
+        data={"entity_id": entity_id},
+        files={"file": ("note.ogg", b"OggS...", "audio/ogg")},
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["input_type"] == "audio"
+    assert body["stored_document"]["extraction"]["status"] == "needs_review"
+    item = body["stored_document"]["extracted_items"][0]
+    assert item["detected_document_type"] == "audio_note"
+    assert any(question["code"] == "audio_transcription_pending" for question in item["questions"])
+
+
+async def test_global_upload_text_document_can_create_draft(client: AsyncClient, seeded: dict, db) -> None:
+    await _login_seeded_owner(client, seeded)
+    entity_id = seeded["personal_entity_id"]
+
+    response = await client.post(
+        "/documents/upload",
+        data={"entity_id": entity_id},
+        files={"file": ("receipt.txt", b"Corner Cafe\n2026-05-05\nTotal 14.25\n", "text/plain")},
+    )
+    assert response.status_code == 201
+    body = response.json()
+    attachment_id = body["stored_document"]["attachment"]["id"]
+    candidate = body["stored_document"]["candidate"]
+    assert candidate is not None
+
+    created = await client.post(f"/documents/{attachment_id}/create-draft")
+    assert created.status_code == 200
+    created_body = created.json()
+    entry = await db.get(JournalEntry, uuid.UUID(created_body["journal_entry_id"]))
+    assert entry is not None
+    assert entry.status.value == "draft"
+
+
+async def test_csv_import_skips_duplicate_rows(seeded, db) -> None:
+    tenant_id = uuid.UUID(seeded["tenant_id"])
+    entity_id = uuid.UUID(seeded["personal_entity_id"])
+    user_id = uuid.UUID(seeded["user_id"])
+    csv_bytes = (
+        "date,amount,merchant,memo,currency,external_ref\n"
+        "2026-05-01,-12.34,Shell,gasolina fill-up,USD,tx-1\n"
+        "2026-05-01,-12.34,Shell,gasolina fill-up,USD,tx-1\n"
+    ).encode("utf-8")
+
+    result = await ingestion_service.import_csv_transactions(
+        db,
+        tenant_id=tenant_id,
+        entity_id=entity_id,
+        user_id=user_id,
+        filename="bank.csv",
+        content_type="text/csv",
+        data=csv_bytes,
+    )
+
+    rows = (await db.execute(select(SourceTransaction).where(SourceTransaction.entity_id == entity_id))).scalars().all()
+    assert len(rows) == 1
+    assert result.batch.rows_imported == 1
+    assert result.batch.error_message == "1 duplicate row(s) skipped"

@@ -11,9 +11,11 @@ const NAV: NavItem[] = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/agent", label: "Agent" },
   { href: "/alerts", label: "Alerts" },
+  { href: "/memory", label: "Memory" },
   { href: "/personal", label: "Personal" },
   { href: "/business", label: "Business" },
   { href: "/documents", label: "Documents" },
+  { href: "/telegram", label: "Telegram" },
   { href: "/skills", label: "Skills" },
   { href: "/settings", label: "Settings" },
   { href: "/audit-log", label: "Audit Log" },
@@ -164,7 +166,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 </div>
               </div>
               <p className="max-w-xl text-sm text-[var(--muted)]">
-                Dashboard pages read directly from the API routes already implemented in Phases 1–4.
+                Dashboard pages read directly from the installed API routes and keep sensitive actions in explicit review flows.
               </p>
             </div>
           </header>

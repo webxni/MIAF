@@ -167,6 +167,7 @@ class Tool:
     args_model: type
     handler: Any
     description: str
+    visible: bool = True  # False = registered for execution but hidden from LLM schemas
 
 
 class LLMProvider:
@@ -322,7 +323,7 @@ class OpenAIProvider(LLMProvider):
                 log.warning("openai SDK unavailable; falling back to heuristic provider")
             return await self._fallback.plan(request)
 
-        tools = [_tool_to_openai_schema(tool) for tool in registry.list_tools()]
+        tools = [_tool_to_openai_schema(tool) for tool in registry.list_tools(visible_only=True)]
         system_parts = [
             f"You are {DISPLAY_NAME}.",
             f"Introduce yourself as: {AGENT_INTRO}",
@@ -336,14 +337,15 @@ class OpenAIProvider(LLMProvider):
                 "Use them if appropriate — you are not required to."
             )
         system = " ".join(system_parts)
+        messages: list[dict[str, str]] = [{"role": "system", "content": system}]
+        for prior in request.conversation_history:
+            messages.append({"role": prior.role, "content": prior.content})
+        messages.append({"role": "user", "content": request.message})
         try:
             client = _openai_sdk.OpenAI(api_key=key)
             response = client.chat.completions.create(
                 model=model or DEFAULT_OPENAI_MODEL,
-                messages=[
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": request.message},
-                ],
+                messages=messages,
                 tools=tools,
                 tool_choice="auto",
                 max_tokens=1024,
@@ -408,10 +410,11 @@ class AnthropicProvider(LLMProvider):
                 log.warning("Anthropic SDK is unavailable; falling back to heuristic provider")
             return await self._fallback.plan(request)
 
-        tools = [_tool_to_anthropic_schema(tool) for tool in self._tool_registry.list_tools()]
+        visible_tools = self._tool_registry.list_tools(visible_only=True)
+        tools = [_tool_to_anthropic_schema(tool) for tool in visible_tools]
         tool_lines = [
             f"- {tool.name}: {tool.description} Schema: {json.dumps(tool.args_model.model_json_schema(), sort_keys=True)}"
-            for tool in self._tool_registry.list_tools()
+            for tool in visible_tools
         ]
         system_lines = [
             f"You are {DISPLAY_NAME}.",
@@ -431,13 +434,18 @@ class AnthropicProvider(LLMProvider):
             )
         system = "\n".join(system_lines)
 
+        messages: list[dict[str, Any]] = []
+        for prior in request.conversation_history:
+            messages.append({"role": prior.role, "content": prior.content})
+        messages.append({"role": "user", "content": request.message})
+
         try:
             client = anthropic.Anthropic(api_key=key)
             response = client.messages.create(
                 model=model or DEFAULT_ANTHROPIC_MODEL,
                 system=system,
                 tools=tools,
-                messages=[{"role": "user", "content": request.message}],
+                messages=messages,
                 max_tokens=1024,
             )
         except Exception:
@@ -534,16 +542,20 @@ class ToolRegistry:
     def __init__(self) -> None:
         self._tools: dict[str, Tool] = {}
 
-    def register(self, name: str, schema: type, handler, description: str | None = None) -> None:
+    def register(self, name: str, schema: type, handler, description: str | None = None, *, visible: bool = True) -> None:
         self._tools[name] = Tool(
             name=name,
             args_model=schema,
             handler=handler,
             description=description or _TOOL_DESCRIPTIONS.get(name, name.replace("_", " ")),
+            visible=visible,
         )
 
-    def list_tools(self) -> list[Tool]:
-        return list(self._tools.values())
+    def list_tools(self, *, visible_only: bool = False) -> list[Tool]:
+        tools = list(self._tools.values())
+        if visible_only:
+            return [t for t in tools if t.visible]
+        return tools
 
     async def execute(self, name: str, raw_arguments: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
         if name not in self._tools:
@@ -800,6 +812,63 @@ async def _tool_explain_transaction(ctx: ToolContext, args: ExplainTransactionAr
     }
 
 
+async def _tool_create_business_expense(ctx: ToolContext, args: CreatePersonalExpenseArgs) -> dict[str, Any]:
+    entity = await _entity_for_mode(ctx, EntityMode.business)
+    cash_account = await _account_by_code(ctx.db, entity.id, "1110")
+    expense_account = await _account_by_code(
+        ctx.db, entity.id, _category_to_code(args.category_hint or args.description)
+    )
+    entry = await create_draft(
+        ctx.db,
+        entity_id=entity.id,
+        user_id=ctx.me.id,
+        payload=JournalEntryCreate(
+            entry_date=args.entry_date,
+            memo=args.description,
+            reference="agent:business-expense",
+            lines=[
+                JournalLineIn(
+                    account_id=expense_account.id,
+                    debit=args.amount,
+                    credit=Decimal("0"),
+                    description=args.description,
+                ),
+                JournalLineIn(
+                    account_id=cash_account.id,
+                    debit=Decimal("0"),
+                    credit=args.amount,
+                    description="Cash paid",
+                ),
+            ],
+        ),
+    )
+    return {
+        "entity_id": str(entity.id),
+        "draft_entry_id": str(entry.id),
+        "status": entry.status.value,
+        "post_confirmation": {
+            "tool_name": "post_journal_entry",
+            "reason": "Posting a business journal entry is sensitive and requires confirmation.",
+            "arguments": {"entity_id": str(entity.id), "entry_id": str(entry.id)},
+        },
+    }
+
+
+async def _tool_classify_transaction(ctx: ToolContext, args: ExplainTransactionArgs) -> dict[str, Any]:
+    code = _category_to_code(args.description)
+    reason = (
+        "keyword match"
+        if code != "5900"
+        else "default (no keyword matched; review suggested)"
+    )
+    return {
+        "description": args.description,
+        "suggested_account_code": code,
+        "reason": reason,
+        "note": "Classification is keyword-based. Override the account before posting.",
+    }
+
+
 async def _tool_not_implemented(_: ToolContext, __) -> dict[str, Any]:
     return {"status": "not_implemented", "message": "This tool is reserved for a later phase."}
 
@@ -1042,22 +1111,22 @@ def build_tool_registry() -> ToolRegistry:
     registry.register("create_journal_entry_draft", CreateJournalEntryDraftArgs, _tool_create_journal_entry_draft)
     registry.register("post_journal_entry", PostJournalEntryArgs, _tool_post_journal_entry)
     registry.register("create_personal_expense", CreatePersonalExpenseArgs, _tool_create_personal_expense)
-    registry.register("create_business_expense", CreatePersonalExpenseArgs, _tool_not_implemented)
+    registry.register("create_business_expense", CreatePersonalExpenseArgs, _tool_create_business_expense)
     registry.register("create_invoice", CreateInvoiceArgs, _tool_create_invoice)
-    registry.register("record_invoice_payment", PostJournalEntryArgs, _tool_not_implemented)
-    registry.register("create_bill", CreateInvoiceArgs, _tool_not_implemented)
-    registry.register("record_bill_payment", PostJournalEntryArgs, _tool_not_implemented)
+    registry.register("record_invoice_payment", PostJournalEntryArgs, _tool_not_implemented, visible=False)
+    registry.register("create_bill", CreateInvoiceArgs, _tool_not_implemented, visible=False)
+    registry.register("record_bill_payment", PostJournalEntryArgs, _tool_not_implemented, visible=False)
     registry.register("get_personal_summary", SummaryArgs, _tool_get_personal_summary)
     registry.register("get_business_summary", SummaryArgs, _tool_get_business_summary)
     registry.register("get_balance_sheet", StatementArgs, _tool_get_balance_sheet)
     registry.register("get_income_statement", CashFlowArgs, _tool_get_income_statement)
     registry.register("get_cash_flow", CashFlowArgs, _tool_get_cash_flow)
-    registry.register("create_budget", MemoryArgs, _tool_not_implemented)
-    registry.register("create_goal", MemoryArgs, _tool_not_implemented)
-    registry.register("create_debt_plan", MemoryArgs, _tool_not_implemented)
+    registry.register("create_budget", MemoryArgs, _tool_not_implemented, visible=False)
+    registry.register("create_goal", MemoryArgs, _tool_not_implemented, visible=False)
+    registry.register("create_debt_plan", MemoryArgs, _tool_not_implemented, visible=False)
     registry.register("suggest_emergency_fund_plan", SuggestEmergencyFundPlanArgs, _tool_suggest_emergency_fund_plan)
     registry.register("suggest_investment_allocation", SuggestInvestmentAllocationArgs, _tool_suggest_investment_allocation)
-    registry.register("classify_transaction", ExplainTransactionArgs, _tool_not_implemented)
+    registry.register("classify_transaction", ExplainTransactionArgs, _tool_classify_transaction)
     registry.register("explain_transaction", ExplainTransactionArgs, _tool_explain_transaction)
     registry.register("search_memory", MemoryArgs, _tool_search_memory)
     registry.register("add_memory", MemoryArgs, _tool_add_memory)

@@ -32,6 +32,22 @@ class Settings(BaseSettings):
     agent_rate_limit_window_seconds: int = Field(default=60, alias="AGENT_RATE_LIMIT_WINDOW_SECONDS")
     agent_rate_limit_attempts: int = Field(default=30, alias="AGENT_RATE_LIMIT_ATTEMPTS")
 
+    # Tailscale
+    tailscale_binary_path: str = Field(default="/usr/bin/tailscale", alias="TAILSCALE_BINARY_PATH")
+    tailscale_command_timeout: int = Field(default=10, alias="TAILSCALE_COMMAND_TIMEOUT")
+    # Comma-separated list of ports allowed as Tailscale Serve targets (localhost only).
+    tailscale_allowed_ports: str = Field(default="80", alias="TAILSCALE_ALLOWED_PORTS")
+
+    @property
+    def tailscale_allowed_ports_set(self) -> set[int]:
+        ports: set[int] = set()
+        for part in self.tailscale_allowed_ports.split(","):
+            try:
+                ports.add(int(part.strip()))
+            except ValueError:
+                pass
+        return ports
+
     @property
     def session_cookie_secure(self) -> bool:
         return self.environment == "production"

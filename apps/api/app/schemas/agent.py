@@ -19,11 +19,17 @@ class ToolConfirmationIn(BaseModel):
     arguments: dict[str, Any] = Field(default_factory=dict)
 
 
+class ConversationMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=0, max_length=8000)
+
+
 class AgentChatRequest(BaseModel):
     message: str = Field(default="", max_length=4000)
     entity_id: uuid.UUID | None = None
     confirmations: list[ToolConfirmationIn] = Field(default_factory=list)
     provider: str | None = Field(default=None, max_length=50)
+    conversation_history: list[ConversationMessage] = Field(default_factory=list, max_length=40)
 
 
 class AgentToolCallOut(BaseModel):

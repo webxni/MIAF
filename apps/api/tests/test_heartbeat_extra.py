@@ -9,7 +9,10 @@ from sqlalchemy import select
 
 from app.models import (
     Account,
+    Attachment,
     AlertSeverity,
+    DocumentExtraction,
+    ExtractionStatus,
     GeneratedReport,
     HeartbeatRun,
     HeartbeatType,
@@ -226,6 +229,70 @@ async def test_monthly_business_close_completes(seeded, db):
     )
 
     assert result.run.status.value == "completed"
+
+
+async def test_daily_personal_heartbeat_flags_documents_needing_review(seeded, db):
+    tenant_id = uuid.UUID(seeded["tenant_id"])
+    entity_id = uuid.UUID(seeded["personal_entity_id"])
+    user_id = uuid.UUID(seeded["user_id"])
+
+    attachment = Attachment(
+        tenant_id=tenant_id,
+        entity_id=entity_id,
+        filename="receipt.txt",
+        content_type="text/plain",
+        size_bytes=24,
+        sha256="a" * 64,
+        storage_key="test/receipt.txt",
+        uploaded_by_id=user_id,
+    )
+    db.add(attachment)
+    await db.flush()
+
+    extraction = DocumentExtraction(
+        tenant_id=tenant_id,
+        entity_id=entity_id,
+        attachment_id=attachment.id,
+        extraction_kind="receipt",
+        status=ExtractionStatus.needs_review,
+        extracted_data={
+            "items": [
+                {
+                    "source_type": "text",
+                    "detected_document_type": "receipt",
+                    "candidate_entity_type": "unknown",
+                    "confidence": "0.4000",
+                    "confidence_level": "low",
+                    "questions": [
+                        {
+                            "code": "personal_business_ambiguous",
+                            "question": "Is this personal or business?",
+                            "status": "open",
+                        }
+                    ],
+                }
+            ]
+        },
+        confidence_score=Decimal("0.4000"),
+        duplicate_detected=True,
+    )
+    db.add(extraction)
+    await db.flush()
+
+    result = await run_heartbeat(
+        db,
+        tenant_id=tenant_id,
+        heartbeat_type=HeartbeatType.daily_personal_check,
+        as_of=date(2026, 5, 6),
+        trigger_source="manual",
+        initiated_by_user_id=user_id,
+    )
+
+    alert_types = {alert.alert_type for alert in result.alerts}
+    assert "documents_need_review" in alert_types
+    assert "duplicate_documents_detected" in alert_types
+    assert "document_questions_open" in alert_types
+    assert "low_confidence_documents" in alert_types
 
 
 async def test_default_scheduler_includes_extra_monday_heartbeats(seeded, db):

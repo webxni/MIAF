@@ -158,3 +158,48 @@ async def test_agent_chat_is_rate_limited_per_user(seeded, db, monkeypatch):
         await service.chat(db, me=me, payload=AgentChatRequest(message="status"))
     assert exc.value.code == "agent_rate_limited"
     assert exc.value.status_code == 429
+
+
+async def test_stub_tools_hidden_from_llm_schema(seeded, db):
+    from app.services.agent import build_tool_registry
+
+    registry = build_tool_registry()
+    all_names = {t.name for t in registry.list_tools()}
+    visible_names = {t.name for t in registry.list_tools(visible_only=True)}
+
+    stubs = {"record_invoice_payment", "create_bill", "record_bill_payment",
+             "create_budget", "create_goal", "create_debt_plan"}
+    assert stubs.issubset(all_names), "stubs should still be registered for execution"
+    assert not stubs.intersection(visible_names), "stubs must not appear in LLM tool list"
+
+
+async def test_classify_transaction_tool_returns_account_code(seeded, db):
+    from app.services.agent import build_tool_registry, ToolContext
+    from app.schemas.agent import ExplainTransactionArgs
+
+    registry = build_tool_registry()
+    me = await _current_user(db, seeded)
+
+    class _Req:
+        entity_id = None
+        message = ""
+        provider = None
+        confirmations = []
+        conversation_history = []
+
+    ctx = ToolContext(db=db, me=me, request=_Req())
+    result = await registry.execute("classify_transaction", {"description": "gasoline fill-up"}, ctx)
+    assert result["suggested_account_code"] == "5300"
+    assert "transportation" in result["reason"] or "keyword" in result["reason"]
+
+
+async def test_conversation_history_included_in_request(seeded, db):
+    from app.schemas.agent import AgentChatRequest, ConversationMessage
+
+    history = [
+        ConversationMessage(role="user", content="What is my net worth?"),
+        ConversationMessage(role="assistant", content="Let me check."),
+    ]
+    req = AgentChatRequest(message="And my savings rate?", conversation_history=history)
+    assert len(req.conversation_history) == 2
+    assert req.conversation_history[0].role == "user"

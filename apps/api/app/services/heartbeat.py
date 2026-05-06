@@ -16,8 +16,10 @@ from app.models import (
     Bill,
     BusinessDocumentStatus,
     DebtStatus,
+    DocumentExtraction,
     Entity,
     EntityMode,
+    ExtractionStatus,
     GeneratedReport,
     HeartbeatRun,
     HeartbeatRunStatus,
@@ -27,6 +29,7 @@ from app.models import (
     JournalEntryStatus,
     NetWorthSnapshot,
     ReportKind,
+    SourceTransaction,
     TaxReserve,
     Tenant,
 )
@@ -50,6 +53,22 @@ from app.services.personal import (
     list_debts,
     personal_dashboard,
 )
+
+
+def _open_question_count(extracted_data: dict | None) -> int:
+    if not isinstance(extracted_data, dict):
+        return 0
+    items = extracted_data.get("items")
+    if not isinstance(items, list):
+        return 0
+    count = 0
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        for question in item.get("questions", []):
+            if isinstance(question, dict) and question.get("status") != "answered":
+                count += 1
+    return count
 
 
 @dataclass
@@ -416,6 +435,110 @@ async def _create_alert(
     return row
 
 
+async def _document_review_alerts(
+    db: AsyncSession,
+    *,
+    run: HeartbeatRun,
+    entity: Entity,
+) -> list[Alert]:
+    alerts: list[Alert] = []
+    extractions = list(
+        (
+            await db.execute(
+                select(DocumentExtraction)
+                .where(DocumentExtraction.entity_id == entity.id)
+                .order_by(DocumentExtraction.created_at.desc())
+                .limit(200)
+            )
+        ).scalars().all()
+    )
+    needs_review = [row for row in extractions if row.status in {ExtractionStatus.pending, ExtractionStatus.needs_review}]
+    duplicate_count = sum(1 for row in extractions if row.duplicate_detected)
+    low_confidence = [
+        row for row in extractions if row.confidence_score is not None and row.confidence_score < Decimal("0.5500")
+    ]
+    open_questions = sum(_open_question_count(row.extracted_data) for row in extractions)
+    unposted_drafts = int(
+        (
+            await db.execute(
+                select(func.count(JournalEntry.id)).where(
+                    JournalEntry.entity_id == entity.id,
+                    JournalEntry.status == JournalEntryStatus.draft,
+                    JournalEntry.source_transaction_id.is_not(None),
+                )
+            )
+        ).scalar_one()
+        or 0
+    )
+
+    if needs_review:
+        alerts.append(
+            await _create_alert(
+                db,
+                run=run,
+                entity_id=entity.id,
+                alert_type="documents_need_review",
+                severity=AlertSeverity.warning,
+                title="Documents need review",
+                message=f"{len(needs_review)} uploaded document(s) still need review.",
+                payload={"count": len(needs_review)},
+            )
+        )
+    if duplicate_count:
+        alerts.append(
+            await _create_alert(
+                db,
+                run=run,
+                entity_id=entity.id,
+                alert_type="duplicate_documents_detected",
+                severity=AlertSeverity.warning,
+                title="Possible duplicate documents detected",
+                message=f"{duplicate_count} extraction(s) were flagged as possible duplicates.",
+                payload={"count": duplicate_count},
+            )
+        )
+    if open_questions:
+        alerts.append(
+            await _create_alert(
+                db,
+                run=run,
+                entity_id=entity.id,
+                alert_type="document_questions_open",
+                severity=AlertSeverity.info,
+                title="Accounting questions are waiting for answers",
+                message=f"{open_questions} question(s) remain open across extracted items.",
+                payload={"count": open_questions},
+            )
+        )
+    if low_confidence:
+        alerts.append(
+            await _create_alert(
+                db,
+                run=run,
+                entity_id=entity.id,
+                alert_type="low_confidence_documents",
+                severity=AlertSeverity.info,
+                title="Low-confidence extractions need confirmation",
+                message=f"{len(low_confidence)} extraction(s) are still low confidence.",
+                payload={"count": len(low_confidence)},
+            )
+        )
+    if unposted_drafts:
+        alerts.append(
+            await _create_alert(
+                db,
+                run=run,
+                entity_id=entity.id,
+                alert_type="unposted_source_drafts",
+                severity=AlertSeverity.info,
+                title="Draft accounting records are still unposted",
+                message=f"{unposted_drafts} source-linked draft journal entr{ 'y' if unposted_drafts == 1 else 'ies' } remain unposted.",
+                payload={"count": unposted_drafts},
+            )
+        )
+    return alerts
+
+
 async def _daily_personal_check(
     db: AsyncSession,
     *,
@@ -524,6 +647,7 @@ async def _daily_personal_check(
     except Exception:  # noqa: BLE001
         pass
 
+    alerts.extend(await _document_review_alerts(db, run=run, entity=entity))
     return alerts
 
 
@@ -631,6 +755,7 @@ async def _daily_business_check(
     except Exception:  # noqa: BLE001
         pass
 
+    alerts.extend(await _document_review_alerts(db, run=run, entity=entity))
     return alerts
 
 

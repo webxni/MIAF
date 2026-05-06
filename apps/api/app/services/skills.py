@@ -194,6 +194,16 @@ async def _execute_skill(
     skill: LoadedSkill,
     input_payload: dict,
 ) -> dict[str, Any]:
+    if skill.manifest.requires_confirmation and not input_payload.get("confirmed"):
+        return {
+            "status": "confirmation_required",
+            "skill_name": skill.manifest.name,
+            "message": (
+                f"Skill '{skill.manifest.name}' requires explicit confirmation before running. "
+                "Re-submit with confirmed=true."
+            ),
+        }
+
     name = skill.manifest.name
     as_of = input_payload.get("as_of") or date.today()
     mode = input_payload.get("mode")

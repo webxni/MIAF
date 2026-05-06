@@ -9,7 +9,8 @@ COMPOSE_PROD := docker compose -f compose.yaml -f compose.prod.yaml
         api-shell web-shell db-shell redis-shell \
         api-logs web-logs worker-logs scheduler-logs \
         prod-up prod-down prod-build smoke \
-        migrate seed test bootstrap revision
+        migrate seed test bootstrap revision \
+        tailscale-status tailscale-ip tailscale-serve tailscale-serve-status tailscale-serve-reset
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
@@ -88,3 +89,20 @@ prod-down: ## Stop production stack
 
 prod-build: ## Build production images
 	$(COMPOSE_PROD) build
+
+# ── Tailscale helpers (run on the host, not inside a container) ───────────────
+
+tailscale-status: ## Show Tailscale connection status (JSON)
+	tailscale status --json | python3 -m json.tool
+
+tailscale-ip: ## Print this machine's Tailscale IPv4 address
+	tailscale ip -4
+
+tailscale-serve: ## Start Tailscale Serve pointing at localhost:80 (private tailnet only)
+	sudo tailscale serve --bg http://127.0.0.1:80
+
+tailscale-serve-status: ## Show active Tailscale Serve configuration
+	tailscale serve status
+
+tailscale-serve-reset: ## Remove all Tailscale Serve configuration
+	sudo tailscale serve reset

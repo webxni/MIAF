@@ -19,7 +19,7 @@ export default function OnboardingPage() {
     setError(null);
     try {
       await registerOwner(name, email, password);
-      window.location.replace("/dashboard");
+      window.location.replace("/onboarding/tailscale");
     } catch (err) {
       if (err instanceof ApiRequestError && err.status === 409 && err.code === "owner_already_exists") {
         const message = encodeURIComponent(

@@ -91,6 +91,11 @@ export type PendingConfirmation = {
   arguments: Record<string, unknown>;
 };
 
+export type ConversationMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
 export type AgentChatRequest = {
   message: string;
   entity_id?: string | null;
@@ -99,6 +104,7 @@ export type AgentChatRequest = {
     arguments: Record<string, unknown>;
   }>;
   provider?: string | null;
+  conversation_history?: ConversationMessage[];
 };
 
 export type AgentChatResponse = {
@@ -141,6 +147,115 @@ export type Alert = {
   payload: Record<string, unknown> | null;
   resolved_at: string | null;
   created_at: string;
+};
+
+export type GeneratedReport = {
+  id: string;
+  tenant_id: string;
+  entity_id: string | null;
+  heartbeat_run_id: string | null;
+  report_kind: string;
+  period_start: string;
+  period_end: string;
+  title: string;
+  body: string;
+  created_at: string;
+};
+
+export type MemoryType =
+  | "user_profile"
+  | "personal_preference"
+  | "business_profile"
+  | "financial_rule"
+  | "merchant_rule"
+  | "tax_context"
+  | "goal_context"
+  | "risk_preference"
+  | "recurring_pattern"
+  | "advisor_note";
+
+export type MemoryReviewStatus = "accepted" | "needs_update" | "archived";
+
+export type MemoryRecord = {
+  id: string;
+  tenant_id: string;
+  user_id: string | null;
+  entity_id: string | null;
+  memory_type: MemoryType;
+  title: string;
+  content: string;
+  summary: string | null;
+  keywords: string[] | null;
+  source: string;
+  consent_granted: boolean;
+  is_active: boolean;
+  expires_at: string | null;
+  last_accessed_at: string | null;
+};
+
+export type MemoryCreatePayload = {
+  memory_type: MemoryType;
+  title: string;
+  content: string;
+  summary?: string | null;
+  keywords?: string[];
+  source?: string;
+  entity_id?: string | null;
+  consent_granted: boolean;
+};
+
+export type MemoryReview = {
+  id: string;
+  memory_id: string;
+  reviewer_user_id: string | null;
+  status: MemoryReviewStatus;
+  notes: string | null;
+  reviewed_at: string | null;
+};
+
+export type TelegramActiveMode = "personal" | "business";
+
+export type TelegramLink = {
+  id: string;
+  tenant_id: string;
+  user_id: string;
+  personal_entity_id: string | null;
+  business_entity_id: string | null;
+  active_mode: TelegramActiveMode;
+  telegram_user_id: string;
+  telegram_chat_id: string;
+  telegram_username: string | null;
+  is_active: boolean;
+  last_seen_at: string | null;
+};
+
+export type TelegramMessage = {
+  id: string;
+  tenant_id: string | null;
+  user_id: string | null;
+  entity_id: string | null;
+  link_id: string | null;
+  direction: "inbound" | "outbound";
+  message_type: "text" | "image" | "pdf" | "voice" | "command" | "system";
+  status: "processed" | "rejected" | "rate_limited";
+  telegram_user_id: string;
+  telegram_chat_id: string;
+  telegram_message_id: string | null;
+  text_body: string | null;
+  file_name: string | null;
+  file_mime_type: string | null;
+  payload: Record<string, unknown> | null;
+  created_at: string;
+};
+
+export type TelegramLinkCreatePayload = {
+  telegram_user_id: string;
+  telegram_chat_id: string;
+  telegram_username?: string | null;
+  personal_entity_id?: string | null;
+  business_entity_id?: string | null;
+  active_mode: TelegramActiveMode;
+  is_active: boolean;
 };
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "/api";
@@ -270,6 +385,76 @@ export async function resolveAlert(alertId: string): Promise<Alert> {
   return apiFetch<Alert>(`/heartbeat/alerts/${alertId}/resolve`, {
     method: "POST",
   });
+}
+
+export async function listHeartbeatReports(params: { limit?: number } = {}): Promise<GeneratedReport[]> {
+  return apiFetch<GeneratedReport[]>(
+    `/heartbeat/reports${buildQueryString({
+      limit: params.limit,
+    })}`,
+  );
+}
+
+export async function listMemories(params: {
+  query?: string;
+  memory_type?: MemoryType | "";
+  limit?: number;
+} = {}): Promise<MemoryRecord[]> {
+  return apiFetch<MemoryRecord[]>(
+    `/memory${buildQueryString({
+      query: params.query,
+      memory_type: params.memory_type || undefined,
+      limit: params.limit,
+    })}`,
+  );
+}
+
+export async function createMemory(payload: MemoryCreatePayload): Promise<MemoryRecord> {
+  return apiFetch<MemoryRecord>("/memory", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function expireMemory(memoryId: string): Promise<MemoryRecord> {
+  return apiFetch<MemoryRecord>(`/memory/${memoryId}/expire`, {
+    method: "POST",
+  });
+}
+
+export async function deleteMemory(memoryId: string): Promise<void> {
+  return apiFetch<void>(`/memory/${memoryId}`, {
+    method: "DELETE",
+  });
+}
+
+export async function reviewMemory(
+  memoryId: string,
+  payload: { status: MemoryReviewStatus; notes?: string | null },
+): Promise<MemoryReview> {
+  return apiFetch<MemoryReview>(`/memory/${memoryId}/review`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function listTelegramLinks(): Promise<TelegramLink[]> {
+  return apiFetch<TelegramLink[]>("/telegram/links");
+}
+
+export async function createTelegramLink(payload: TelegramLinkCreatePayload): Promise<TelegramLink> {
+  return apiFetch<TelegramLink>("/telegram/links", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function listTelegramMessages(params: { limit?: number } = {}): Promise<TelegramMessage[]> {
+  return apiFetch<TelegramMessage[]>(
+    `/telegram/messages${buildQueryString({
+      limit: params.limit,
+    })}`,
+  );
 }
 
 export type Budget = {
@@ -536,6 +721,144 @@ export type PendingDraft = {
   };
 };
 
+export type ExtractedFinancialQuestion = {
+  code: string;
+  question: string;
+  status: string;
+  answer: string | null;
+};
+
+export type CandidateAccount = {
+  account_id: string | null;
+  code: string | null;
+  name: string | null;
+  reason: string | null;
+};
+
+export type ExtractedFinancialItem = {
+  source_id: string | null;
+  source_type: string;
+  detected_document_type: "receipt" | "invoice" | "bill" | "bank_transaction" | "audio_note" | "text_note" | "unknown";
+  date: string | null;
+  amount: string | null;
+  currency: string | null;
+  merchant: string | null;
+  vendor: string | null;
+  customer: string | null;
+  description: string | null;
+  line_items: Array<Record<string, unknown>>;
+  tax_amount: string | null;
+  payment_method: string | null;
+  candidate_entity_type: "personal" | "business" | "unknown";
+  candidate_accounts: CandidateAccount[];
+  confidence: string;
+  confidence_level: "high" | "medium" | "low";
+  missing_fields: string[];
+  questions: ExtractedFinancialQuestion[];
+  raw_text_reference: string | null;
+  file_id: string | null;
+  audit_id: string | null;
+};
+
+export type Attachment = {
+  id: string;
+  tenant_id: string;
+  entity_id: string | null;
+  source_transaction_id: string | null;
+  journal_entry_id: string | null;
+  filename: string;
+  content_type: string;
+  size_bytes: number;
+  sha256: string;
+  storage_key: string;
+  uploaded_by_id: string | null;
+};
+
+export type DocumentExtraction = {
+  id: string;
+  tenant_id: string;
+  entity_id: string;
+  attachment_id: string;
+  source_transaction_id: string | null;
+  extraction_kind: string;
+  status: "pending" | "extracted" | "needs_review" | "approved" | "rejected";
+  extracted_text: string | null;
+  extracted_data: Record<string, unknown> | null;
+  confidence_score: string | null;
+  duplicate_detected: boolean;
+  reviewed_at: string | null;
+  reviewed_by_id: string | null;
+};
+
+export type ExtractionCandidate = {
+  id: string;
+  tenant_id: string;
+  entity_id: string;
+  document_extraction_id: string;
+  source_transaction_id: string | null;
+  suggested_account_id: string | null;
+  suggested_memo: string | null;
+  suggested_entry: Record<string, unknown> | null;
+  confidence_score: string | null;
+  status: "suggested" | "approved" | "rejected";
+  approved_entry_id: string | null;
+  rationale: string | null;
+};
+
+export type ImportBatch = {
+  id: string;
+  tenant_id: string;
+  entity_id: string;
+  attachment_id: string | null;
+  kind: string;
+  status: "processing" | "completed" | "failed";
+  rows_total: number;
+  rows_imported: number;
+  rows_failed: number;
+  error_message: string | null;
+  created_by_id: string | null;
+};
+
+export type SourceTransaction = {
+  id: string;
+  entity_id: string;
+  kind: string;
+  external_ref: string | null;
+  occurred_at: string | null;
+  amount: string | null;
+  currency: string | null;
+  merchant: string | null;
+  raw: Record<string, unknown> | null;
+  content_hash: string | null;
+  status: string;
+};
+
+export type CsvImportResult = {
+  batch: ImportBatch;
+  source_transactions: SourceTransaction[];
+  drafts_created: number;
+};
+
+export type StoredDocument = {
+  attachment: Attachment;
+  extraction: DocumentExtraction | null;
+  candidate: ExtractionCandidate | null;
+  batch: ImportBatch | null;
+  extracted_items: ExtractedFinancialItem[];
+};
+
+export type DocumentUploadResult = {
+  input_type: "text" | "csv" | "pdf" | "image" | "audio" | "unsupported";
+  stored_document: StoredDocument | null;
+  csv_import: CsvImportResult | null;
+  warnings: string[];
+};
+
+export type DocumentQuestionList = {
+  attachment_id: string;
+  questions: ExtractedFinancialQuestion[];
+};
+
 export async function listGoals(entityId: string): Promise<Goal[]> {
   return apiFetch<Goal[]>(`/entities/${entityId}/personal/goals`);
 }
@@ -554,6 +877,77 @@ export async function listJournalEntries(entityId: string): Promise<JournalEntry
 
 export async function listPendingDrafts(entityId: string): Promise<PendingDraft[]> {
   return apiFetch<PendingDraft[]>(`/entities/${entityId}/documents/pending-drafts`);
+}
+
+export async function listDocuments(params: { entity_id?: string; limit?: number } = {}): Promise<StoredDocument[]> {
+  return apiFetch<StoredDocument[]>(
+    `/documents${buildQueryString({
+      entity_id: params.entity_id,
+      limit: params.limit,
+    })}`,
+  );
+}
+
+export async function uploadDocument(entityId: string, file: File): Promise<DocumentUploadResult> {
+  const form = new FormData();
+  form.append("entity_id", entityId);
+  form.append("file", file);
+  const res = await fetch(`${API_BASE}/documents/upload`, {
+    method: "POST",
+    credentials: "include",
+    body: form,
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    throw await parseError(res);
+  }
+  return (await res.json()) as DocumentUploadResult;
+}
+
+export async function extractDocument(attachmentId: string): Promise<StoredDocument> {
+  return apiFetch<StoredDocument>(`/documents/${attachmentId}/extract`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+export async function classifyDocument(attachmentId: string): Promise<StoredDocument> {
+  return apiFetch<StoredDocument>(`/documents/${attachmentId}/classify`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+export async function createDraftFromDocument(attachmentId: string): Promise<{ candidate: ExtractionCandidate; journal_entry_id: string }> {
+  return apiFetch<{ candidate: ExtractionCandidate; journal_entry_id: string }>(`/documents/${attachmentId}/create-draft`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+export async function rejectDocument(attachmentId: string): Promise<StoredDocument> {
+  return apiFetch<StoredDocument>(`/documents/${attachmentId}/reject`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+export async function listDocumentQuestions(attachmentId: string): Promise<DocumentQuestionList> {
+  return apiFetch<DocumentQuestionList>(`/documents/${attachmentId}/questions`);
+}
+
+export async function answerDocumentQuestion(attachmentId: string, code: string, answer: string): Promise<StoredDocument> {
+  return apiFetch<StoredDocument>(`/documents/${attachmentId}/answer-question`, {
+    method: "POST",
+    body: JSON.stringify({ code, answer }),
+  });
+}
+
+export async function ingestText(entityId: string, text: string): Promise<{ stored_document: StoredDocument }> {
+  return apiFetch<{ stored_document: StoredDocument }>("/ingest/text", {
+    method: "POST",
+    body: JSON.stringify({ entity_id: entityId, text }),
+  });
 }
 
 export async function updateJournalEntry(
@@ -590,4 +984,81 @@ export function todayIso(): string {
 
 export function monthStartIso(asOf: string = todayIso()): string {
   return `${asOf.slice(0, 7)}-01`;
+}
+
+// ── Tailscale ─────────────────────────────────────────────────────────────────
+
+export type TailscaleMode = "off" | "direct_ip" | "serve";
+
+export type TailscaleSettings = {
+  id: string;
+  tenant_id: string;
+  tailscale_enabled: boolean;
+  tailscale_mode: TailscaleMode;
+  tailscale_target_url: string;
+  tailscale_hostname: string | null;
+  tailscale_tailnet_url: string | null;
+  tailscale_last_status: string | null;
+  tailscale_last_checked_at: string | null;
+  tailscale_setup_completed: boolean;
+  tailscale_notes: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type TailscaleLiveStatus = {
+  settings: TailscaleSettings;
+  binary_available: boolean;
+  tailscale_ip: string | null;
+  hostname: string | null;
+  serve_status: string | null;
+  private_url: string | null;
+  warnings: string[];
+  instructions_only: boolean;
+  manual_commands: Record<string, string>;
+  setup_instructions: string[];
+};
+
+export type TailscaleSettingsUpdatePayload = {
+  tailscale_enabled?: boolean | null;
+  tailscale_mode?: TailscaleMode | null;
+  tailscale_target_url?: string | null;
+  tailscale_hostname?: string | null;
+  tailscale_tailnet_url?: string | null;
+  tailscale_setup_completed?: boolean | null;
+  tailscale_notes?: string | null;
+};
+
+export async function getTailscaleSettings(): Promise<TailscaleLiveStatus> {
+  return apiFetch<TailscaleLiveStatus>("/settings/tailscale");
+}
+
+export async function updateTailscaleSettings(
+  payload: TailscaleSettingsUpdatePayload,
+): Promise<TailscaleSettings> {
+  return apiFetch<TailscaleSettings>("/settings/tailscale", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function checkTailscaleStatus(): Promise<TailscaleLiveStatus> {
+  return apiFetch<TailscaleLiveStatus>("/settings/tailscale/check", {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+export async function startTailscaleServe(): Promise<TailscaleLiveStatus> {
+  return apiFetch<TailscaleLiveStatus>("/settings/tailscale/serve/start", {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+export async function resetTailscaleServe(): Promise<TailscaleLiveStatus> {
+  return apiFetch<TailscaleLiveStatus>("/settings/tailscale/serve/reset", {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
 }

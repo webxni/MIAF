@@ -9,6 +9,8 @@ from app.api.audit import router as audit_router
 from app.api.agent import router as agent_router
 from app.api.auth import router as auth_router
 from app.api.business import router as business_router
+from app.api.documents import global_router as documents_global_router
+from app.api.documents import ingest_router as ingest_router
 from app.api.documents import router as documents_router
 from app.api.entities import router as entities_router
 from app.api.heartbeat import internal_router as internal_heartbeat_router
@@ -19,6 +21,7 @@ from app.api.memory import router as memory_router
 from app.api.personal import router as personal_router
 from app.api.skills import router as skills_router
 from app.api.telegram import router as telegram_router
+from app.api.tailscale_settings import router as tailscale_settings_router
 from app.api.user_settings import router as user_settings_router
 from app.config import get_settings
 from app.core.brand import SHORT_NAME
@@ -69,6 +72,8 @@ app.include_router(ledger_router)
 app.include_router(personal_router)
 app.include_router(business_router)
 app.include_router(documents_router)
+app.include_router(documents_global_router)
+app.include_router(ingest_router)
 app.include_router(agent_router)
 app.include_router(memory_router)
 app.include_router(heartbeat_router)
@@ -76,6 +81,7 @@ app.include_router(internal_heartbeat_router)
 app.include_router(skills_router)
 app.include_router(telegram_router)
 app.include_router(user_settings_router)
+app.include_router(tailscale_settings_router)
 
 
 @app.get("/", tags=["meta"])
