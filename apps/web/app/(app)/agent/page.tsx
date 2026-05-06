@@ -3,6 +3,7 @@
 import { FormEvent, useMemo, useState } from "react";
 
 import { SectionCard } from "../../_components/cards";
+import { isChartPayload, MiniChart } from "../../_components/mini-chart";
 import {
   ApiRequestError,
   chatWithAgent,
@@ -215,9 +216,13 @@ export default function AgentPage() {
                             {call.status}
                           </span>
                         </div>
-                        <pre className="mt-2 overflow-x-auto rounded-xl bg-[var(--surface)] p-3 text-xs text-[var(--muted)]">
-                          {JSON.stringify(call.result ?? call.arguments, null, 2)}
-                        </pre>
+                        {call.result && isChartPayload(call.result) ? (
+                          <MiniChart payload={call.result} />
+                        ) : (
+                          <pre className="mt-2 overflow-x-auto rounded-xl bg-[var(--surface)] p-3 text-xs text-[var(--muted)]">
+                            {JSON.stringify(call.result ?? call.arguments, null, 2)}
+                          </pre>
+                        )}
                         {call.error ? (
                           <p className="mt-2 text-xs text-[var(--danger-ink)]">{call.error}</p>
                         ) : null}

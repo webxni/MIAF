@@ -114,16 +114,16 @@ _TOOL_DESCRIPTIONS: dict[str, str] = {
     "create_business_expense": "Reserved business expense drafting tool for a later phase.",
     "create_invoice": "Create a draft business invoice for a customer sale.",
     "record_invoice_payment": "Reserved invoice payment recording tool that requires confirmation.",
-    "create_bill": "Reserved vendor bill creation tool for a later phase.",
+    "create_bill": "Create a draft vendor bill for an expense from a named vendor. Returns a bill ID for review and posting.",
     "record_bill_payment": "Reserved bill payment recording tool that requires confirmation.",
     "get_personal_summary": "Return deterministic personal dashboard summary figures.",
     "get_business_summary": "Return deterministic business dashboard summary figures.",
     "get_balance_sheet": "Return a deterministic business balance sheet snapshot.",
     "get_income_statement": "Return a deterministic business income statement for a date range.",
     "get_cash_flow": "Return a deterministic business cash flow statement for a date range.",
-    "create_budget": "Reserved budget creation tool for a later phase.",
-    "create_goal": "Reserved goal creation tool for a later phase.",
-    "create_debt_plan": "Reserved debt planning tool for a later phase.",
+    "create_budget": "Create a personal budget with a name and date range. Lines are added separately via the budget API.",
+    "create_goal": "Create a personal savings or financial goal with a name, target amount, and optional target date.",
+    "create_debt_plan": "Record a personal debt (loan, credit card, etc.) with balance, interest rate, and minimum payment for tracking.",
     "suggest_emergency_fund_plan": "Suggest an emergency fund target from deterministic personal figures.",
     "suggest_investment_allocation": "Suggest an educational investment allocation without executing trades.",
     "classify_transaction": "Reserved transaction classification tool for a later phase.",
@@ -1380,7 +1380,9 @@ class SkillPlanner:
         "balance sheet": ["generate_balance_sheet_data", "get_balance_sheet"],
         "trial balance": ["generate_trial_balance_data"],
         "cash flow": ["analyze_personal_cashflow", "get_cash_flow"],
-        "budget": ["analyze_budget_variance", "get_personal_summary"],
+        "budget": ["analyze_budget_variance", "get_personal_summary", "create_budget"],
+        "create budget": ["create_budget"],
+        "new budget": ["create_budget"],
         "anomaly": ["detect_financial_anomalies"],
         "anomalies": ["detect_financial_anomalies"],
         "unusual": ["detect_financial_anomalies"],
@@ -1391,11 +1393,19 @@ class SkillPlanner:
         "investment": ["analyze_portfolio_risk", "suggest_investment_allocation"],
         "risk": ["analyze_portfolio_risk", "check_room_for_error"],
         "simulate": ["simulate_financial_goal"],
-        "goal": ["simulate_financial_goal"],
+        "goal": ["simulate_financial_goal", "create_goal"],
+        "create goal": ["create_goal"],
+        "new goal": ["create_goal"],
+        "debt": ["suggest_debt_payoff_plan", "create_debt_plan"],
+        "create debt": ["create_debt_plan"],
+        "loan": ["create_debt_plan"],
         "spending": ["analyze_spending_habits", "detect_financial_anomalies"],
         "habits": ["analyze_spending_habits"],
         "chart": ["generate_chart_data"],
         "graph": ["generate_chart_data"],
+        "bill": ["create_bill"],
+        "vendor bill": ["create_bill"],
+        "create bill": ["create_bill"],
         "money meeting": ["build_money_meeting_agenda", "get_personal_summary", "get_business_summary"],
         "weekly review": ["build_money_meeting_agenda"],
         "health": ["check_financial_health", "check_room_for_error"],
@@ -1424,16 +1434,16 @@ def build_tool_registry() -> ToolRegistry:
     registry.register("create_business_expense", CreatePersonalExpenseArgs, _tool_create_business_expense)
     registry.register("create_invoice", CreateInvoiceArgs, _tool_create_invoice)
     registry.register("record_invoice_payment", RecordInvoicePaymentArgs, _tool_record_invoice_payment, visible=False)
-    registry.register("create_bill", CreateBillArgs, _tool_create_bill, visible=False)
+    registry.register("create_bill", CreateBillArgs, _tool_create_bill)
     registry.register("record_bill_payment", RecordBillPaymentArgs, _tool_record_bill_payment, visible=False)
     registry.register("get_personal_summary", SummaryArgs, _tool_get_personal_summary)
     registry.register("get_business_summary", SummaryArgs, _tool_get_business_summary)
     registry.register("get_balance_sheet", StatementArgs, _tool_get_balance_sheet)
     registry.register("get_income_statement", CashFlowArgs, _tool_get_income_statement)
     registry.register("get_cash_flow", CashFlowArgs, _tool_get_cash_flow)
-    registry.register("create_budget", CreateBudgetAgentArgs, _tool_create_budget, visible=False)
-    registry.register("create_goal", CreateGoalAgentArgs, _tool_create_goal, visible=False)
-    registry.register("create_debt_plan", CreateDebtPlanAgentArgs, _tool_create_debt_plan, visible=False)
+    registry.register("create_budget", CreateBudgetAgentArgs, _tool_create_budget)
+    registry.register("create_goal", CreateGoalAgentArgs, _tool_create_goal)
+    registry.register("create_debt_plan", CreateDebtPlanAgentArgs, _tool_create_debt_plan)
     registry.register("suggest_emergency_fund_plan", SuggestEmergencyFundPlanArgs, _tool_suggest_emergency_fund_plan)
     registry.register("suggest_investment_allocation", SuggestInvestmentAllocationArgs, _tool_suggest_investment_allocation)
     registry.register("classify_transaction", ExplainTransactionArgs, _tool_classify_transaction)

@@ -320,6 +320,17 @@ export async function logout(): Promise<void> {
   await apiFetch<void>("/auth/logout", { method: "POST" });
 }
 
+export async function changePassword(currentPassword: string, newPassword: string): Promise<void> {
+  await apiFetch<void>("/auth/password", {
+    method: "PUT",
+    body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+  });
+}
+
+export async function revokeAllSessions(): Promise<void> {
+  await apiFetch<void>("/auth/revoke-all-sessions", { method: "POST" });
+}
+
 export async function me(): Promise<User> {
   return apiFetch<User>("/auth/me");
 }

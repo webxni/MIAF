@@ -4,11 +4,13 @@ import { FormEvent, useEffect, useState } from "react";
 
 import { SectionCard } from "../../_components/cards";
 import {
+  changePassword,
   checkTailscaleStatus,
   getSettings,
   getTailscaleSettings,
   me,
   resetTailscaleServe,
+  revokeAllSessions,
   startTailscaleServe,
   updateSettings,
   type AIProvider,
@@ -44,6 +46,12 @@ export default function SettingsPage() {
   const [tailscale, setTailscale] = useState<TailscaleLiveStatus | null>(null);
   const [tsLoading, setTsLoading] = useState(false);
   const [tsError, setTsError] = useState<string | null>(null);
+
+  const [currentPw, setCurrentPw] = useState("");
+  const [newPw, setNewPw] = useState("");
+  const [pwMessage, setPwMessage] = useState<string | null>(null);
+  const [pwError, setPwError] = useState<string | null>(null);
+  const [pwSaving, setPwSaving] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -81,6 +89,37 @@ export default function SettingsPage() {
       setTsError(err instanceof Error ? err.message : "Tailscale action failed");
     } finally {
       setTsLoading(false);
+    }
+  }
+
+  async function handlePasswordChange(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (newPw.length < 12) {
+      setPwError("New password must be at least 12 characters.");
+      return;
+    }
+    setPwSaving(true);
+    setPwMessage(null);
+    setPwError(null);
+    try {
+      await changePassword(currentPw, newPw);
+      setPwMessage("Password changed successfully.");
+      setCurrentPw("");
+      setNewPw("");
+    } catch (err) {
+      setPwError(err instanceof Error ? err.message : "Password change failed.");
+    } finally {
+      setPwSaving(false);
+    }
+  }
+
+  async function handleRevokeAll() {
+    if (!confirm("Sign out of all sessions? You will need to log in again.")) return;
+    try {
+      await revokeAllSessions();
+      window.location.replace("/login");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to revoke sessions.");
     }
   }
 
@@ -439,6 +478,69 @@ export default function SettingsPage() {
         ) : (
           <p className="text-sm text-[var(--muted)]">Loading Tailscale status…</p>
         )}
+      </SectionCard>
+
+      {/* Security */}
+      <SectionCard title="Security" description="Change your password or sign out of all active sessions.">
+        <form className="space-y-4" onSubmit={handlePasswordChange}>
+          {pwMessage ? (
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+              {pwMessage}
+            </div>
+          ) : null}
+          {pwError ? (
+            <div className="rounded-xl border border-[var(--danger-line)] bg-[var(--danger-bg)] px-4 py-3 text-sm text-[var(--danger-ink)]">
+              {pwError}
+            </div>
+          ) : null}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className="block text-sm font-medium mb-1.5" htmlFor="current-password">
+                Current password
+              </label>
+              <input
+                id="current-password"
+                type="password"
+                autoComplete="current-password"
+                value={currentPw}
+                onChange={(e) => setCurrentPw(e.target.value)}
+                className="w-full rounded-xl border border-[var(--line)] bg-[var(--surface)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1.5" htmlFor="new-password">
+                New password (min 12 chars)
+              </label>
+              <input
+                id="new-password"
+                type="password"
+                autoComplete="new-password"
+                minLength={12}
+                value={newPw}
+                onChange={(e) => setNewPw(e.target.value)}
+                className="w-full rounded-xl border border-[var(--line)] bg-[var(--surface)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
+                required
+              />
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              type="submit"
+              disabled={pwSaving || !currentPw || !newPw}
+              className="rounded-xl bg-[var(--accent)] px-4 py-2 text-sm font-medium text-[var(--accent-ink)] hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {pwSaving ? "Saving…" : "Change password"}
+            </button>
+            <button
+              type="button"
+              onClick={handleRevokeAll}
+              className="rounded-xl border border-[var(--danger-line)] px-4 py-2 text-sm text-[var(--danger-ink)] hover:bg-[var(--danger-bg)]"
+            >
+              Sign out all sessions
+            </button>
+          </div>
+        </form>
       </SectionCard>
     </div>
   );

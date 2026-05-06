@@ -167,10 +167,15 @@ async def test_stub_tools_hidden_from_llm_schema(seeded, db):
     all_names = {t.name for t in registry.list_tools()}
     visible_names = {t.name for t in registry.list_tools(visible_only=True)}
 
-    stubs = {"record_invoice_payment", "create_bill", "record_bill_payment",
-             "create_budget", "create_goal", "create_debt_plan"}
-    assert stubs.issubset(all_names), "stubs should still be registered for execution"
-    assert not stubs.intersection(visible_names), "stubs must not appear in LLM tool list"
+    # Payment tools remain hidden — they need an existing invoice/bill ID from a prior step
+    hidden_tools = {"record_invoice_payment", "record_bill_payment"}
+    assert hidden_tools.issubset(all_names), "payment tools should be registered for execution"
+    assert not hidden_tools.intersection(visible_names), "payment tools must not appear in LLM tool list"
+
+    # These now have real implementations and are visible to LLMs
+    real_tools = {"create_bill", "create_budget", "create_goal", "create_debt_plan"}
+    assert real_tools.issubset(all_names), "real tools must be registered"
+    assert real_tools.issubset(visible_names), "real tools must be visible to LLM"
 
 
 async def test_classify_transaction_tool_returns_account_code(seeded, db):
