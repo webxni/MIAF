@@ -109,7 +109,36 @@ export type AgentChatResponse = {
   disclaimers: string[];
 };
 
+export type AuditLog = {
+  id: string;
+  created_at: string;
+  user_id: string | null;
+  entity_id: string | null;
+  action: string;
+  object_type: string;
+  object_id: string | null;
+  before: Record<string, unknown> | null;
+  after: Record<string, unknown> | null;
+  ip: string | null;
+  user_agent: string | null;
+};
+
+export type AuditLogListResponse = {
+  rows: AuditLog[];
+  total: number;
+};
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "/api";
+
+function buildQueryString(params: Record<string, string | number | null | undefined>): string {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value === null || value === undefined || value === "") continue;
+    search.set(key, String(value));
+  }
+  const query = search.toString();
+  return query ? `?${query}` : "";
+}
 
 async function parseError(res: Response): Promise<ApiRequestError> {
   try {
@@ -189,6 +218,19 @@ export async function entities(): Promise<Entity[]> {
 
 export async function listSkills(): Promise<SkillManifest[]> {
   return apiFetch<SkillManifest[]>("/skills");
+}
+
+export async function listAuditLogs(params: {
+  action?: string;
+  object_type?: string;
+  user_id?: string;
+  entity_id?: string;
+  since?: string;
+  until?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<AuditLogListResponse> {
+  return apiFetch<AuditLogListResponse>(`/audit-logs${buildQueryString(params)}`);
 }
 
 export type Budget = {

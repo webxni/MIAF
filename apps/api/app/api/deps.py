@@ -137,3 +137,28 @@ def require_role(*allowed: Role):
 require_writer = require_role(Role.owner, Role.admin, Role.accountant, Role.agent)
 require_poster = require_role(Role.owner, Role.admin, Role.accountant)
 require_reader = require_role(Role.owner, Role.admin, Role.accountant, Role.viewer, Role.agent)
+
+
+async def require_tenant_admin_or_owner(
+    db: DB,
+    me: CurrentUserDep,
+) -> CurrentUser:
+    row = (
+        await db.execute(
+            select(EntityMember.id)
+            .join(Entity, Entity.id == EntityMember.entity_id)
+            .where(
+                Entity.tenant_id == me.tenant_id,
+                EntityMember.user_id == me.id,
+                EntityMember.role.in_((Role.owner, Role.admin)),
+            )
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        raise ForbiddenError(
+            "Role must be owner or admin on at least one entity",
+            code="role_forbidden",
+            details={"required_any": [Role.owner.value, Role.admin.value]},
+        )
+    return me
