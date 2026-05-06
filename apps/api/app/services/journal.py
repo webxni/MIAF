@@ -23,10 +23,11 @@ from app.errors import (
     NotFoundError,
     UnbalancedEntryError,
 )
-from app.models import Account, Entity, JournalEntry, JournalEntryStatus, JournalLine
+from app.models import Account, AccountType, Entity, JournalEntry, JournalEntryStatus, JournalLine, SourceTransaction
 from app.models.base import utcnow
 from app.money import ZERO, to_money
 from app.schemas.journal import JournalLineIn
+from app.services.classifier import classify_source_transaction, record_merchant_correction
 
 
 # --------- helpers ----------------------------------------------------------
@@ -318,6 +319,59 @@ async def delete_draft(db: AsyncSession, entry: JournalEntry) -> None:
     await db.flush()
 
 
+async def _learn_merchant_rule_from_posted_entry(
+    db: AsyncSession,
+    entry: JournalEntry,
+    *,
+    posted_by_id: uuid.UUID,
+) -> None:
+    if entry.source_transaction_id is None:
+        return
+
+    source_tx = await db.get(SourceTransaction, entry.source_transaction_id)
+    if source_tx is None or not (source_tx.merchant or "").strip():
+        return
+
+    entity = await db.get(Entity, entry.entity_id)
+    if entity is None:
+        return
+
+    accounts = (
+        await db.execute(select(Account).where(Account.entity_id == entry.entity_id).order_by(Account.code))
+    ).scalars().all()
+    accounts_by_id = {account.id: account for account in accounts}
+    actual_expense_account = next(
+        (
+            accounts_by_id[line.account_id]
+            for line in entry.lines
+            if line.debit > ZERO
+            and accounts_by_id.get(line.account_id) is not None
+            and accounts_by_id[line.account_id].type == AccountType.expense
+        ),
+        None,
+    )
+    if actual_expense_account is None:
+        return
+
+    active_accounts = [account for account in accounts if account.is_active]
+    suggested_account, _ = classify_source_transaction(
+        source_tx,
+        active_accounts,
+        memory_lookup=None,
+    )
+    if suggested_account.code == actual_expense_account.code:
+        return
+
+    await record_merchant_correction(
+        db,
+        tenant_id=entity.tenant_id,
+        user_id=posted_by_id,
+        entity_id=entry.entity_id,
+        merchant=source_tx.merchant or "",
+        account=actual_expense_account,
+    )
+
+
 async def post_entry(
     db: AsyncSession, entry: JournalEntry, *, posted_by_id: uuid.UUID
 ) -> JournalEntry:
@@ -336,6 +390,14 @@ async def post_entry(
     entry.posted_at = utcnow()
     entry.posted_by_id = posted_by_id
     await db.flush()
+    try:
+        await _learn_merchant_rule_from_posted_entry(
+            db,
+            entry,
+            posted_by_id=posted_by_id,
+        )
+    except Exception:
+        pass
     return entry
 
 

@@ -110,17 +110,7 @@ def _month_bounds(as_of: date) -> tuple[date, date]:
     return start, end
 
 
-def _category_to_code(text: str) -> str:
-    normalized = text.lower()
-    if any(token in normalized for token in ("gas", "gasolina", "uber", "lyft", "transport", "fuel")):
-        return "5300"
-    if any(token in normalized for token in ("food", "restaurant", "cafe", "coffee", "grocer", "dinner")):
-        return "5200"
-    if any(token in normalized for token in ("rent", "housing", "mortgage")):
-        return "5100"
-    if any(token in normalized for token in ("electric", "water", "utility", "internet")):
-        return "5400"
-    return "5900"
+from app.services.classifier import _category_to_code  # re-exported for callers
 
 
 @dataclass

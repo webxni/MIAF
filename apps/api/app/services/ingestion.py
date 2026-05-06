@@ -37,7 +37,7 @@ from app.schemas.ingestion import CandidateApprovalOut, CsvImportOut, PendingDra
 from app.schemas.journal import JournalEntryCreate, JournalLineIn
 from app.config import get_settings
 from app.services.audit import write_audit
-from app.services.classifier import classify_source_transaction
+from app.services.classifier import build_memory_lookup, classify_source_transaction
 from app.services.journal import create_draft
 from app.storage import ensure_bucket, minio_client
 
@@ -496,6 +496,12 @@ async def import_csv_transactions(
     accounts = (
         await db.execute(select(Account).where(Account.entity_id == entity_id, Account.is_active.is_(True)).order_by(Account.code))
     ).scalars().all()
+    memory_lookup = await build_memory_lookup(
+        db,
+        tenant_id=tenant_id,
+        entity_id=entity_id,
+        accounts=accounts,
+    )
     created: list[SourceTransaction] = []
     drafts_created = 0
     failures = 0
@@ -527,6 +533,7 @@ async def import_csv_transactions(
                 user_id=user_id,
                 source_tx=source_tx,
                 accounts=accounts,
+                memory_lookup=memory_lookup,
             ):
                 drafts_created += 1
             created.append(source_tx)
