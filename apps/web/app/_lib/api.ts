@@ -77,6 +77,38 @@ export type UserSettingsUpdatePayload = {
   ai_api_key_clear?: boolean;
 };
 
+export type AgentToolCall = {
+  tool_name: string;
+  status: "completed" | "confirmation_required" | "blocked" | "not_implemented";
+  arguments: Record<string, unknown>;
+  result: Record<string, unknown> | null;
+  error: string | null;
+};
+
+export type PendingConfirmation = {
+  tool_name: string;
+  reason: string;
+  arguments: Record<string, unknown>;
+};
+
+export type AgentChatRequest = {
+  message: string;
+  entity_id?: string | null;
+  confirmations?: Array<{
+    tool_name: string;
+    arguments: Record<string, unknown>;
+  }>;
+  provider?: string | null;
+};
+
+export type AgentChatResponse = {
+  message: string;
+  provider: string;
+  tool_calls: AgentToolCall[];
+  pending_confirmations: PendingConfirmation[];
+  disclaimers: string[];
+};
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "/api";
 
 async function parseError(res: Response): Promise<ApiRequestError> {
@@ -140,6 +172,13 @@ export async function getSettings(): Promise<UserSettings> {
 export async function updateSettings(payload: UserSettingsUpdatePayload): Promise<UserSettings> {
   return apiFetch<UserSettings>("/settings", {
     method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function chatWithAgent(payload: AgentChatRequest): Promise<AgentChatResponse> {
+  return apiFetch<AgentChatResponse>("/agent/chat", {
+    method: "POST",
     body: JSON.stringify(payload),
   });
 }
