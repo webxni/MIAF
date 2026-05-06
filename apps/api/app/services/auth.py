@@ -136,3 +136,13 @@ async def revoke_all_sessions(db: AsyncSession, user_id: uuid.UUID) -> int:
     for row in rows:
         await db.delete(row)
     return len(rows)
+
+
+async def cleanup_expired_sessions(db: AsyncSession) -> int:
+    """Delete sessions whose expires_at is in the past. Returns the count deleted."""
+    expired = (
+        await db.execute(select(Session).where(Session.expires_at <= utcnow()))
+    ).scalars().all()
+    for row in expired:
+        await db.delete(row)
+    return len(expired)

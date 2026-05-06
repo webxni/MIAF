@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.accounts import router as accounts_router
 from app.api.audit import router as audit_router
 from app.api.agent import router as agent_router
+from app.api.auth import internal_router as internal_auth_router
 from app.api.auth import router as auth_router
 from app.api.business import router as business_router
 from app.api.documents import global_router as documents_global_router
@@ -66,6 +67,7 @@ install_error_handlers(app)
 
 app.include_router(health_router)
 app.include_router(auth_router)
+app.include_router(internal_auth_router)
 app.include_router(audit_router)
 app.include_router(entities_router)
 app.include_router(accounts_router)

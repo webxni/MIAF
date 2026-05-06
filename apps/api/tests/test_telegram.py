@@ -153,3 +153,50 @@ async def test_telegram_start_command_uses_miaf_branding(seeded, db):
 
     assert result.accepted is True
     assert "MIAF, tu Mayordomo IA Financiero." in result.reply_text
+
+
+async def test_webhook_rejects_invalid_secret(seeded, db, monkeypatch):
+    """When TELEGRAM_WEBHOOK_SECRET is set, requests without the matching header are rejected."""
+    import pytest_asyncio
+    from httpx import ASGITransport, AsyncClient
+    from app.api.deps import get_db
+    from app.main import app
+
+    async def override_get_db():
+        yield db
+
+    app.dependency_overrides[get_db] = override_get_db
+    transport = ASGITransport(app=app)
+    try:
+        from app.config import get_settings
+        settings = get_settings()
+        monkeypatch.setattr(settings, "telegram_webhook_secret", "super-secret-token")
+
+        async with AsyncClient(transport=transport, base_url="http://testserver") as client:
+            r = await client.post(
+                "/telegram/webhook",
+                json={
+                    "telegram_user_id": "tg-user-1",
+                    "telegram_chat_id": "tg-chat-1",
+                    "message_type": "text",
+                    "text": "/status",
+                },
+                headers={},  # no secret token header
+            )
+        assert r.status_code == 403
+
+        async with AsyncClient(transport=transport, base_url="http://testserver") as client:
+            r2 = await client.post(
+                "/telegram/webhook",
+                json={
+                    "telegram_user_id": "tg-user-1",
+                    "telegram_chat_id": "tg-chat-1",
+                    "message_type": "text",
+                    "text": "/status",
+                },
+                headers={"x-telegram-bot-api-secret-token": "wrong-token"},
+            )
+        assert r2.status_code == 403
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+        monkeypatch.setattr(settings, "telegram_webhook_secret", None)

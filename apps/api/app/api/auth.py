@@ -17,6 +17,7 @@ from app.services.audit import write_audit
 from app.services.auth import (
     authenticate_user,
     check_login_rate_limit,
+    cleanup_expired_sessions,
     create_session,
     find_user_by_email,
     record_login_attempt,
@@ -34,6 +35,7 @@ from app.services.seed import create_default_chart_of_accounts
 from app.security import hash_password, verify_password
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+internal_router = APIRouter(prefix="/internal/auth", tags=["internal-auth"])
 
 
 def _set_session_cookie(response: Response, token: str) -> None:
@@ -339,3 +341,18 @@ async def accept_invite_endpoint(
         user_agent=ctx.user_agent,
     )
     return UserOut.model_validate(user)
+
+
+# ── Internal maintenance ──────────────────────────────────────────────────────
+
+@internal_router.post("/cleanup-sessions", status_code=200)
+async def cleanup_sessions_endpoint(
+    db: DB,
+    x_automation_token: Annotated[str | None, Header()] = None,
+) -> dict:
+    from fastapi import HTTPException
+    expected = get_settings().automation_token
+    if not expected or x_automation_token != expected:
+        raise HTTPException(status_code=401, detail="Invalid automation token")
+    deleted = await cleanup_expired_sessions(db)
+    return {"sessions_deleted": deleted}

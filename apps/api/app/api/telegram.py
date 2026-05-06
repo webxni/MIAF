@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import hmac
+import logging
 from typing import Annotated
 
-from fastapi import APIRouter, Query, status
+from fastapi import APIRouter, Header, HTTPException, Query, status
 
 from app.api.deps import CurrentUserDep, DB
+from app.config import get_settings
 from app.schemas.telegram import (
     TelegramInboundMessageIn,
     TelegramLinkCreate,
@@ -14,7 +17,20 @@ from app.schemas.telegram import (
 )
 from app.services.telegram import create_or_update_link, list_links, list_messages, process_inbound_message
 
+log = logging.getLogger("api.telegram")
 router = APIRouter(prefix="/telegram", tags=["telegram"])
+
+
+def _verify_webhook_secret(x_telegram_bot_api_secret_token: str | None) -> None:
+    settings = get_settings()
+    expected = settings.telegram_webhook_secret
+    if expected is None:
+        return  # No secret configured — allow (dev mode)
+    if x_telegram_bot_api_secret_token is None:
+        raise HTTPException(status_code=403, detail="Missing Telegram webhook secret token")
+    if not hmac.compare_digest(expected, x_telegram_bot_api_secret_token):
+        log.warning("Telegram webhook secret mismatch — request rejected")
+        raise HTTPException(status_code=403, detail="Invalid Telegram webhook secret token")
 
 
 @router.get("/links", response_model=list[TelegramLinkOut])
@@ -42,5 +58,10 @@ async def list_messages_endpoint(
 
 
 @router.post("/webhook", response_model=TelegramWebhookResponse)
-async def webhook_endpoint(payload: TelegramInboundMessageIn, db: DB) -> TelegramWebhookResponse:
+async def webhook_endpoint(
+    payload: TelegramInboundMessageIn,
+    db: DB,
+    x_telegram_bot_api_secret_token: Annotated[str | None, Header()] = None,
+) -> TelegramWebhookResponse:
+    _verify_webhook_secret(x_telegram_bot_api_secret_token)
     return await process_inbound_message(db, payload=payload)

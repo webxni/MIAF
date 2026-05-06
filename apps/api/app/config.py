@@ -36,6 +36,12 @@ class Settings(BaseSettings):
     ip_rate_limit_window_seconds: int = Field(default=60, alias="IP_RATE_LIMIT_WINDOW_SECONDS")
     ip_rate_limit_requests: int = Field(default=120, alias="IP_RATE_LIMIT_REQUESTS")
 
+    # Telegram
+    telegram_webhook_secret: str | None = Field(default=None, alias="TELEGRAM_WEBHOOK_SECRET")
+
+    # Internal automation
+    automation_token: str | None = Field(default=None, alias="AUTOMATION_TOKEN")
+
     # Tailscale
     tailscale_binary_path: str = Field(default="/usr/bin/tailscale", alias="TAILSCALE_BINARY_PATH")
     tailscale_command_timeout: int = Field(default=10, alias="TAILSCALE_COMMAND_TIMEOUT")
