@@ -156,6 +156,8 @@ API surface (Phases 1-6 backend):
 * `POST /api/heartbeat/run`.
 * `GET /api/heartbeat/runs`.
 * `GET /api/heartbeat/alerts`.
+* `POST /api/heartbeat/alerts/{alert_id}/dismiss`.
+* `POST /api/heartbeat/alerts/{alert_id}/resolve`.
 * `GET /api/heartbeat/reports`.
 * `POST /api/internal/heartbeat/run-defaults` with `x-automation-token`.
 * `GET /api/skills`.
@@ -254,10 +256,12 @@ Phase 8 status:
 * Heartbeat models live in `app/models/heartbeat.py`: `HeartbeatRun`, `Alert`, and `GeneratedReport`.
 * The implemented heartbeat types are currently: `daily_personal_check`, `daily_business_check`, and `weekly_business_report`. Other contract heartbeat types remain future work.
 * `run_heartbeat()` persists a run record, creates alerts/reports deterministically from current finance data, and writes heartbeat audit logs for both manual and scheduler-triggered runs.
+* Alerts can now be listed plus transitioned from `open` to `dismissed` or `resolved` through the heartbeat API; those status changes are tenant-scoped, audited as normal `object_type="alert"` updates, and re-opening or mutating non-open alerts is rejected.
 * Personal checks currently flag low emergency funds, debts due within 7 days, and current-period budget overspends.
 * Business checks currently flag low cash runway, overdue invoices/bills, and tax-reserve gaps.
 * Weekly business reports are stored in `generated_reports` as markdown text.
 * The scheduler no longer just logs `tick`; it now POSTs to the internal heartbeat endpoint using `API_HEARTBEAT_URL` and `AUTOMATION_TOKEN`.
+* The web app now exposes heartbeat alerts in three places: `/alerts` for the full table with dismiss/resolve actions, a sidebar badge showing the current open-alert count, and a recent-alerts panel on `/dashboard`.
 * Tests for the heartbeat slice live in `apps/api/tests/test_heartbeat.py`.
 
 Phase 9 status:

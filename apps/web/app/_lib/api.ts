@@ -128,6 +128,21 @@ export type AuditLogListResponse = {
   total: number;
 };
 
+export type Alert = {
+  id: string;
+  tenant_id: string;
+  entity_id: string | null;
+  heartbeat_run_id: string | null;
+  alert_type: string;
+  severity: "info" | "warning" | "critical";
+  status: "open" | "resolved" | "dismissed";
+  title: string;
+  message: string;
+  payload: Record<string, unknown> | null;
+  resolved_at: string | null;
+  created_at: string;
+};
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "/api";
 
 function buildQueryString(params: Record<string, string | number | null | undefined>): string {
@@ -231,6 +246,30 @@ export async function listAuditLogs(params: {
   offset?: number;
 }): Promise<AuditLogListResponse> {
   return apiFetch<AuditLogListResponse>(`/audit-logs${buildQueryString(params)}`);
+}
+
+export async function listAlerts(params: {
+  only_open?: boolean;
+  limit?: number;
+} = {}): Promise<Alert[]> {
+  return apiFetch<Alert[]>(
+    `/heartbeat/alerts${buildQueryString({
+      only_open: params.only_open === undefined ? undefined : params.only_open ? "true" : "false",
+      limit: params.limit,
+    })}`,
+  );
+}
+
+export async function dismissAlert(alertId: string): Promise<Alert> {
+  return apiFetch<Alert>(`/heartbeat/alerts/${alertId}/dismiss`, {
+    method: "POST",
+  });
+}
+
+export async function resolveAlert(alertId: string): Promise<Alert> {
+  return apiFetch<Alert>(`/heartbeat/alerts/${alertId}/resolve`, {
+    method: "POST",
+  });
 }
 
 export type Budget = {

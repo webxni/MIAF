@@ -8,7 +8,7 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.errors import FinClawError
+from app.errors import FinClawError, NotFoundError
 from app.models import (
     Alert,
     AlertSeverity,
@@ -69,6 +69,69 @@ async def list_reports(db: AsyncSession, *, tenant_id: uuid.UUID, limit: int = 2
         .limit(limit)
     )
     return list((await db.execute(stmt)).scalars().all())
+
+
+async def update_alert_status(
+    db: AsyncSession,
+    *,
+    tenant_id: uuid.UUID,
+    alert_id: uuid.UUID,
+    status: AlertStatus,
+    user_id: uuid.UUID,
+    ip: str | None,
+    user_agent: str | None,
+) -> Alert:
+    alert = (
+        await db.execute(
+            select(Alert).where(
+                Alert.id == alert_id,
+                Alert.tenant_id == tenant_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if alert is None:
+        raise NotFoundError(f"Alert {alert_id} not found", code="alert_not_found")
+
+    if alert.status != AlertStatus.open or status not in {AlertStatus.resolved, AlertStatus.dismissed}:
+        raise FinClawError("invalid_alert_transition", code="invalid_alert_transition")
+
+    before = {
+        "status": alert.status.value,
+        "resolved_at": alert.resolved_at.isoformat() if alert.resolved_at is not None else None,
+    }
+    alert.status = status
+    alert.resolved_at = utcnow() if status == AlertStatus.resolved else None
+
+    if hasattr(Alert, "resolved_by_id"):
+        setattr(alert, "resolved_by_id", user_id)
+    if hasattr(Alert, "resolved_action"):
+        setattr(alert, "resolved_action", status.value)
+
+    after = {
+        "status": alert.status.value,
+        "resolved_at": alert.resolved_at.isoformat() if alert.resolved_at is not None else None,
+    }
+    if hasattr(Alert, "resolved_by_id"):
+        value = getattr(alert, "resolved_by_id", None)
+        after["resolved_by_id"] = str(value) if value is not None else None
+    if hasattr(Alert, "resolved_action"):
+        after["resolved_action"] = getattr(alert, "resolved_action", None)
+
+    await write_audit(
+        db,
+        tenant_id=tenant_id,
+        user_id=user_id,
+        entity_id=alert.entity_id,
+        action="update",
+        object_type="alert",
+        object_id=alert_id,
+        before=before,
+        after=after,
+        ip=ip,
+        user_agent=user_agent,
+    )
+    await db.flush()
+    return alert
 
 
 async def run_heartbeat(

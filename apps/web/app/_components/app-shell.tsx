@@ -2,13 +2,14 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-import { entities, logout, me, type Entity, type User } from "../_lib/api";
+import { entities, listAlerts, logout, me, type Entity, type User } from "../_lib/api";
 
 type NavItem = { href: string; label: string };
 
 const NAV: NavItem[] = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/agent", label: "Agent" },
+  { href: "/alerts", label: "Alerts" },
   { href: "/personal", label: "Personal" },
   { href: "/business", label: "Business" },
   { href: "/documents", label: "Documents" },
@@ -22,6 +23,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [items, setItems] = useState<Entity[]>([]);
   const [selected, setSelected] = useState<string>("");
+  const [openAlertCount, setOpenAlertCount] = useState<number | null>(null);
 
   useEffect(() => {
     setPathname(window.location.pathname);
@@ -46,6 +48,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       active = false;
     };
   }, [selected]);
+
+  useEffect(() => {
+    let active = true;
+    listAlerts({ only_open: true, limit: 100 })
+      .then((alerts) => {
+        if (active) setOpenAlertCount(alerts.length);
+      })
+      .catch(() => {
+        if (active) setOpenAlertCount(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const selectedEntity = useMemo(
     () => items.find((entity) => entity.id === selected) ?? items[0] ?? null,
@@ -98,13 +114,24 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <a
                   key={item.href}
                   href={item.href}
-                  className={`block rounded-xl px-3 py-2 text-sm transition ${
+                  className={`flex items-center justify-between rounded-xl px-3 py-2 text-sm transition ${
                     active
                       ? "bg-[var(--accent)] text-[var(--accent-ink)]"
                       : "text-[var(--ink)] hover:bg-[var(--surface)]"
                   }`}
                 >
-                  {item.label}
+                  <span>{item.label}</span>
+                  {item.href === "/alerts" && openAlertCount !== null ? (
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+                        active
+                          ? "bg-[color:rgba(255,255,255,0.24)] text-[var(--accent-ink)]"
+                          : "bg-[var(--surface)] text-[var(--muted)]"
+                      }`}
+                    >
+                      {openAlertCount}
+                    </span>
+                  ) : null}
                 </a>
               );
             })}
