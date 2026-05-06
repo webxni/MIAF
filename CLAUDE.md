@@ -232,7 +232,8 @@ Phase 5 status:
 
 Phase 6 status:
 * Agent route lives in `app/api/agent.py`; core service lives in `app/services/agent.py`; payloads live in `app/schemas/agent.py`.
-* Providers currently share a deterministic heuristic planning path through `HeuristicProvider`, `OpenAIProvider`, `AnthropicProvider`, and `GeminiProvider`. This keeps the interface in place without requiring external API calls during local development.
+* `AnthropicProvider` now uses the real Anthropic Messages API when a user-scoped decrypted key or `ANTHROPIC_API_KEY` env fallback is available; its default model constant is `DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-6"`.
+* If Anthropic has no usable key or its API call fails, planning falls back to `HeuristicProvider` so local/dev environments and degraded provider states still work without breaking the agent route.
 * The tool registry is typed with Pydantic and currently implements: `create_journal_entry_draft`, `post_journal_entry`, `create_personal_expense`, `create_invoice`, `get_personal_summary`, `get_business_summary`, `get_balance_sheet`, `get_income_statement`, `get_cash_flow`, `suggest_emergency_fund_plan`, `suggest_investment_allocation`, and `explain_transaction`.
 * Memory tools are now wired: `search_memory` and `add_memory` route into the Phase 7 memory service. Remaining later-phase tools still return `status="not_implemented"` rather than pretending automation already exists.
 * `PolicyEngine` blocks forbidden real-money / trade actions. `ConfirmationEngine` requires confirmation for sensitive posting/payment-style tools. Audit logs record prompts and tool calls with redaction.
