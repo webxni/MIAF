@@ -21,6 +21,11 @@ def _to_out(row) -> UserSettingsOut:
         ai_model=row.ai_model,
         ai_api_key_hint=row.ai_api_key_hint,
         ai_api_key_present=row.ai_api_key_encrypted is not None,
+        openai_document_ai_enabled=row.openai_document_ai_enabled,
+        openai_document_ai_consent_granted=row.openai_document_ai_consent_granted,
+        openai_vision_model=row.openai_vision_model,
+        openai_pdf_model=row.openai_pdf_model,
+        openai_transcription_model=row.openai_transcription_model,
         created_at=row.created_at,
         updated_at=row.updated_at,
     )

@@ -282,8 +282,15 @@ async def extract_document_endpoint(
     db: DB,
     me: CurrentUserDep,
     ctx: RequestCtx,
+    mode: str = "auto",
 ) -> StoredDocumentOut:
-    result = await rerun_document_extraction(db, tenant_id=me.tenant_id, attachment_id=attachment_id, user_id=me.id)
+    result = await rerun_document_extraction(
+        db,
+        tenant_id=me.tenant_id,
+        attachment_id=attachment_id,
+        user_id=me.id,
+        force_openai=mode == "openai",
+    )
     await write_audit(
         db,
         tenant_id=me.tenant_id,
@@ -446,7 +453,12 @@ async def transcribe_document_endpoint(
     me: CurrentUserDep,
     ctx: RequestCtx,
 ) -> StoredDocumentOut:
-    result = await transcribe_document_audio(db, tenant_id=me.tenant_id, attachment_id=attachment_id)
+    result = await transcribe_document_audio(
+        db,
+        tenant_id=me.tenant_id,
+        attachment_id=attachment_id,
+        user_id=me.id,
+    )
     await write_audit(
         db,
         tenant_id=me.tenant_id,

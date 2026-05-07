@@ -42,6 +42,20 @@ class Settings(BaseSettings):
     # Internal automation
     automation_token: str | None = Field(default=None, alias="AUTOMATION_TOKEN")
 
+    # Optional external document AI
+    openai_document_ai_requires_consent: bool = Field(
+        default=True, alias="OPENAI_DOCUMENT_AI_REQUIRES_CONSENT"
+    )
+    openai_vision_model: str = Field(default="gpt-4o-mini", alias="OPENAI_VISION_MODEL")
+    openai_pdf_model: str = Field(default="gpt-4o-mini", alias="OPENAI_PDF_MODEL")
+    openai_transcription_model: str = Field(
+        default="gpt-4o-mini-transcribe", alias="OPENAI_TRANSCRIPTION_MODEL"
+    )
+    openai_document_max_file_mb: int = Field(default=10, alias="OPENAI_DOCUMENT_MAX_FILE_MB")
+    openai_document_timeout_seconds: int = Field(
+        default=45, alias="OPENAI_DOCUMENT_TIMEOUT_SECONDS"
+    )
+
     # Tailscale
     tailscale_binary_path: str = Field(default="/usr/bin/tailscale", alias="TAILSCALE_BINARY_PATH")
     tailscale_command_timeout: int = Field(default=10, alias="TAILSCALE_COMMAND_TIMEOUT")
@@ -65,6 +79,10 @@ class Settings(BaseSettings):
     @property
     def cors_allow_origins_list(self) -> list[str]:
         return [item.strip() for item in self.cors_allow_origins.split(",") if item.strip()]
+
+    @property
+    def openai_document_max_file_bytes(self) -> int:
+        return max(self.openai_document_max_file_mb, 1) * 1024 * 1024
 
 
 @lru_cache(maxsize=1)

@@ -326,7 +326,7 @@ async def test_audio_upload_creates_review_only_placeholder(client: AsyncClient,
     assert body["stored_document"]["extraction"]["status"] == "needs_review"
     item = body["stored_document"]["extracted_items"][0]
     assert item["detected_document_type"] == "audio_note"
-    assert any(question["code"] == "audio_transcription_pending" for question in item["questions"])
+    assert any(question["code"] == "audio_transcription_disabled" for question in item["questions"])
 
 
 async def test_global_upload_text_document_can_create_draft(client: AsyncClient, seeded: dict, db) -> None:

@@ -37,3 +37,12 @@ class UserSettings(UUIDPK, Timestamps, Base):
     ai_model: Mapped[str | None] = mapped_column(String(64))
     ai_api_key_encrypted: Mapped[bytes | None] = mapped_column(LargeBinary)
     ai_api_key_hint: Mapped[str | None] = mapped_column(String(8))
+    openai_document_ai_enabled: Mapped[bool] = mapped_column(
+        nullable=False, default=False, server_default="false"
+    )
+    openai_document_ai_consent_granted: Mapped[bool] = mapped_column(
+        nullable=False, default=False, server_default="false"
+    )
+    openai_vision_model: Mapped[str | None] = mapped_column(String(64))
+    openai_pdf_model: Mapped[str | None] = mapped_column(String(64))
+    openai_transcription_model: Mapped[str | None] = mapped_column(String(64))

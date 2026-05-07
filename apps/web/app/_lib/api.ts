@@ -63,6 +63,11 @@ export type UserSettings = {
   ai_model: string | null;
   ai_api_key_hint: string | null;
   ai_api_key_present: boolean;
+  openai_document_ai_enabled: boolean;
+  openai_document_ai_consent_granted: boolean;
+  openai_vision_model: string | null;
+  openai_pdf_model: string | null;
+  openai_transcription_model: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -75,6 +80,11 @@ export type UserSettingsUpdatePayload = {
   ai_model?: string | null;
   ai_api_key?: string | null;
   ai_api_key_clear?: boolean;
+  openai_document_ai_enabled?: boolean | null;
+  openai_document_ai_consent_granted?: boolean | null;
+  openai_vision_model?: string | null;
+  openai_pdf_model?: string | null;
+  openai_transcription_model?: string | null;
 };
 
 export type AgentToolCall = {
@@ -771,17 +781,22 @@ export type CandidateAccount = {
 export type ExtractedFinancialItem = {
   source_id: string | null;
   source_type: string;
-  detected_document_type: "receipt" | "invoice" | "bill" | "bank_transaction" | "audio_note" | "text_note" | "unknown";
+  detected_document_type: "receipt" | "invoice" | "bill" | "bank_transaction" | "audio_note" | "text_note" | "statement" | "unknown";
   date: string | null;
+  due_date: string | null;
   amount: string | null;
+  subtotal: string | null;
+  tax_amount: string | null;
   currency: string | null;
   merchant: string | null;
   vendor: string | null;
   customer: string | null;
   description: string | null;
   line_items: Array<Record<string, unknown>>;
-  tax_amount: string | null;
   payment_method: string | null;
+  invoice_number: string | null;
+  bill_number: string | null;
+  account_last4: string | null;
   candidate_entity_type: "personal" | "business" | "unknown";
   candidate_accounts: CandidateAccount[];
   confidence: string;
@@ -790,6 +805,8 @@ export type ExtractedFinancialItem = {
   questions: ExtractedFinancialQuestion[];
   raw_text_reference: string | null;
   file_id: string | null;
+  model_used: string | null;
+  extraction_method: "local_csv" | "local_pdf_text" | "local_ocr" | "local_text" | "openai_vision" | "openai_pdf" | "openai_audio" | "openai_text";
   audit_id: string | null;
 };
 
@@ -937,8 +954,8 @@ export async function uploadDocument(entityId: string, file: File): Promise<Docu
   return (await res.json()) as DocumentUploadResult;
 }
 
-export async function extractDocument(attachmentId: string): Promise<StoredDocument> {
-  return apiFetch<StoredDocument>(`/documents/${attachmentId}/extract`, {
+export async function extractDocument(attachmentId: string, mode: "auto" | "openai" = "auto"): Promise<StoredDocument> {
+  return apiFetch<StoredDocument>(`/documents/${attachmentId}/extract${buildQueryString({ mode })}`, {
     method: "POST",
     body: JSON.stringify({}),
   });

@@ -70,6 +70,11 @@ export default function SettingsPage() {
   const [apiKeyInput, setApiKeyInput] = useState("");
   const [apiKeyDirty, setApiKeyDirty] = useState(false);
   const [removeApiKey, setRemoveApiKey] = useState(false);
+  const [openaiDocumentAiEnabled, setOpenaiDocumentAiEnabled] = useState(false);
+  const [openaiDocumentAiConsentGranted, setOpenaiDocumentAiConsentGranted] = useState(false);
+  const [openaiVisionModel, setOpenaiVisionModel] = useState("gpt-4o-mini");
+  const [openaiPdfModel, setOpenaiPdfModel] = useState("gpt-4o-mini");
+  const [openaiTranscriptionModel, setOpenaiTranscriptionModel] = useState("gpt-4o-mini-transcribe");
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -290,6 +295,11 @@ export default function SettingsPage() {
         ? `••••${nextSettings.ai_api_key_hint}`
         : "",
     );
+    setOpenaiDocumentAiEnabled(nextSettings.openai_document_ai_enabled ?? false);
+    setOpenaiDocumentAiConsentGranted(nextSettings.openai_document_ai_consent_granted ?? false);
+    setOpenaiVisionModel(nextSettings.openai_vision_model ?? "gpt-4o-mini");
+    setOpenaiPdfModel(nextSettings.openai_pdf_model ?? "gpt-4o-mini");
+    setOpenaiTranscriptionModel(nextSettings.openai_transcription_model ?? "gpt-4o-mini-transcribe");
     setApiKeyDirty(false);
     setRemoveApiKey(false);
   }
@@ -306,6 +316,11 @@ export default function SettingsPage() {
         fiscal_year_start_month: Number(fiscalYearStartMonth),
         ai_provider: aiProvider || null,
         ai_model: aiModel.trim() || null,
+        openai_document_ai_enabled: openaiDocumentAiEnabled,
+        openai_document_ai_consent_granted: openaiDocumentAiConsentGranted,
+        openai_vision_model: openaiVisionModel.trim() || null,
+        openai_pdf_model: openaiPdfModel.trim() || null,
+        openai_transcription_model: openaiTranscriptionModel.trim() || null,
         ...(removeApiKey
           ? { ai_api_key_clear: true }
           : apiKeyDirty && apiKeyInput.trim()
@@ -503,6 +518,83 @@ export default function SettingsPage() {
               : settings?.ai_api_key_present
                 ? `Stored key ending in ${keyHint ?? "unknown"}. Focus the field to replace it.`
                 : "No provider key is stored yet."}
+          </p>
+        </SectionCard>
+
+        <SectionCard
+          title="AI document reading"
+          description="Use this only if you are comfortable sending uploaded documents to your AI provider for extraction. Local parsing remains the default when this is off."
+        >
+          <div className="grid gap-4 md:grid-cols-2">
+            <label className="flex items-start gap-3 rounded-xl border border-[var(--line)] bg-[var(--surface)] px-4 py-4 text-sm">
+              <input
+                type="checkbox"
+                className="mt-1"
+                checked={openaiDocumentAiEnabled}
+                onChange={(event) => setOpenaiDocumentAiEnabled(event.target.checked)}
+                disabled={loading || saving}
+              />
+              <span>
+                <span className="block font-medium text-[var(--ink)]">Enable OpenAI document reading</span>
+                <span className="mt-1 block text-[var(--muted)]">
+                  Allows MIAF to use OpenAI for scanned PDFs, low-confidence images, ambiguous text, and audio transcription.
+                </span>
+              </span>
+            </label>
+            <label className="flex items-start gap-3 rounded-xl border border-[var(--line)] bg-[var(--surface)] px-4 py-4 text-sm">
+              <input
+                type="checkbox"
+                className="mt-1"
+                checked={openaiDocumentAiConsentGranted}
+                onChange={(event) => setOpenaiDocumentAiConsentGranted(event.target.checked)}
+                disabled={loading || saving}
+              />
+              <span>
+                <span className="block font-medium text-[var(--ink)]">Allow MIAF to send uploaded documents to OpenAI for extraction</span>
+                <span className="mt-1 block text-[var(--muted)]">
+                  Keep this off if you only want local OCR, local PDF text extraction, and deterministic CSV parsing.
+                </span>
+              </span>
+            </label>
+          </div>
+
+          <div className="mt-4 grid gap-4 md:grid-cols-3">
+            <label className="text-sm font-medium">
+              Vision model
+              <input
+                className="mt-2 w-full rounded-xl border border-[var(--line)] bg-[var(--surface)] px-3 py-3 text-sm"
+                value={openaiVisionModel}
+                onChange={(event) => setOpenaiVisionModel(event.target.value)}
+                maxLength={64}
+                placeholder="gpt-4o-mini"
+                disabled={loading || saving}
+              />
+            </label>
+            <label className="text-sm font-medium">
+              PDF model
+              <input
+                className="mt-2 w-full rounded-xl border border-[var(--line)] bg-[var(--surface)] px-3 py-3 text-sm"
+                value={openaiPdfModel}
+                onChange={(event) => setOpenaiPdfModel(event.target.value)}
+                maxLength={64}
+                placeholder="gpt-4o-mini"
+                disabled={loading || saving}
+              />
+            </label>
+            <label className="text-sm font-medium">
+              Audio transcription model
+              <input
+                className="mt-2 w-full rounded-xl border border-[var(--line)] bg-[var(--surface)] px-3 py-3 text-sm"
+                value={openaiTranscriptionModel}
+                onChange={(event) => setOpenaiTranscriptionModel(event.target.value)}
+                maxLength={64}
+                placeholder="gpt-4o-mini-transcribe"
+                disabled={loading || saving}
+              />
+            </label>
+          </div>
+          <p className="mt-3 text-sm text-[var(--muted)]">
+            OpenAI document reading stays off by default. Even when enabled, MIAF still keeps accounting deterministic and requires review before posting uncertain records.
           </p>
         </SectionCard>
 

@@ -4,6 +4,7 @@ import asyncio
 import csv
 import hashlib
 import io
+import logging
 import re
 import uuid
 from collections.abc import Callable
@@ -32,6 +33,7 @@ from app.models import (
     JournalEntryStatus,
     SourceTransaction,
     SourceTransactionStatus,
+    User,
 )
 from app.models.base import utcnow
 from app.money import ZERO, to_money
@@ -53,17 +55,30 @@ from app.schemas.journal import JournalEntryCreate, JournalLineIn
 from app.config import get_settings
 from app.services.audit import write_audit
 from app.services.classifier import build_memory_lookup, classify_source_transaction
+from app.services.crypto import decrypt_secret
 from app.services.journal import create_draft
+from app.services.openai_document_ai import (
+    DocumentAIContext,
+    openai_classify_extracted_item,
+    openai_extract_from_text,
+    openai_extract_image,
+    openai_extract_pdf,
+    openai_map_csv_columns,
+    openai_transcribe_audio,
+)
+from app.services.user_settings import get_or_create as get_or_create_user_settings
 from app.services import ocr
 from app.skills.accounting.workflows.questions import generate_accounting_question
 from app.storage import ensure_bucket, minio_client
 
-MAX_FILE_BYTES = 10 * 1024 * 1024
+log = logging.getLogger(__name__)
+
 TEXT_CONTENT_TYPES = {"text/plain", "application/octet-stream"}
 CSV_CONTENT_TYPES = {"text/csv", "application/csv", "application/vnd.ms-excel"}
 PDF_CONTENT_TYPES = {"application/pdf"}
 IMAGE_CONTENT_TYPES = {"image/png", "image/jpeg", "image/jpg", "image/webp"}
 AUDIO_CONTENT_TYPES = {
+    "audio/mpga",
     "audio/mpeg",
     "audio/mp3",
     "audio/mp4",
@@ -73,6 +88,8 @@ AUDIO_CONTENT_TYPES = {
     "audio/x-wav",
     "audio/ogg",
     "application/ogg",
+    "audio/webm",
+    "video/webm",
 }
 ALLOWED_UPLOAD_TYPES = TEXT_CONTENT_TYPES | CSV_CONTENT_TYPES | PDF_CONTENT_TYPES | IMAGE_CONTENT_TYPES | AUDIO_CONTENT_TYPES
 ALLOWED_UPLOAD_EXTENSIONS = {
@@ -84,9 +101,13 @@ ALLOWED_UPLOAD_EXTENSIONS = {
     ".jpeg",
     ".webp",
     ".mp3",
+    ".mp4",
+    ".mpeg",
+    ".mpga",
     ".m4a",
     ".wav",
     ".ogg",
+    ".webm",
 }
 SUPPORTED_TEXT_NOTES = {"text", "txt"}
 HIGH_CONFIDENCE = Decimal("0.8000")
@@ -98,6 +119,21 @@ QUESTION_BLOCKING_CODES = {
     "payable_status_unknown",
     "missing_amount",
     "missing_date",
+    "tax_sensitive_classification",
+}
+OPENAI_SUPPORTED_UPLOAD_TYPES = PDF_CONTENT_TYPES | IMAGE_CONTENT_TYPES | AUDIO_CONTENT_TYPES | TEXT_CONTENT_TYPES
+
+_CSV_COLUMN_SYNONYMS: dict[str, tuple[str, ...]] = {
+    "date": ("date", "occurred_at", "posted_on", "transaction_date"),
+    "amount": ("amount", "total", "net_amount"),
+    "debit": ("debit", "withdrawal", "debit_amount", "outflow"),
+    "credit": ("credit", "deposit", "credit_amount", "inflow"),
+    "description": ("description", "memo", "details", "narrative"),
+    "merchant": ("merchant", "payee", "vendor", "counterparty"),
+    "currency": ("currency", "ccy"),
+    "external_ref": ("external_ref", "reference", "id", "transaction_id"),
+    "category": ("category",),
+    "account": ("account", "account_name"),
 }
 
 
@@ -107,6 +143,18 @@ class DetectedUpload:
     file_extension: str
     content_type: str
     warnings: list[str]
+
+
+@dataclass(frozen=True)
+class CSVColumnMapping:
+    date_column: str | None = None
+    amount_column: str | None = None
+    debit_column: str | None = None
+    credit_column: str | None = None
+    description_column: str | None = None
+    merchant_column: str | None = None
+    currency_column: str | None = None
+    external_ref_column: str | None = None
 
 
 def _sha256(data: bytes) -> str:
@@ -122,11 +170,12 @@ def _file_extension(filename: str) -> str:
 
 
 def detect_upload_type(filename: str, content_type: str, size_bytes: int) -> DetectedUpload:
+    settings = get_settings()
     extension = _file_extension(filename)
     normalized_type = (content_type or "application/octet-stream").lower()
     warnings: list[str] = []
 
-    if size_bytes > MAX_FILE_BYTES:
+    if size_bytes > settings.openai_document_max_file_bytes:
         raise MIAFError("File exceeds max upload size", code="file_too_large")
 
     if extension == ".csv" or normalized_type in CSV_CONTENT_TYPES:
@@ -174,6 +223,8 @@ def _normalize_text_note(data: bytes) -> str:
 
 def _detect_document_type(text: str, *, source_type: str) -> str:
     lower = text.lower()
+    if any(token in lower for token in ("statement", "ending balance", "beginning balance")):
+        return "statement"
     if any(token in lower for token in ("invoice", "factura", "inv #", "invoice #")):
         return "invoice"
     if any(token in lower for token in ("bill due", "vendor bill", "statement due")):
@@ -229,7 +280,11 @@ def _extract_named_party(text: str, keywords: tuple[str, ...]) -> str | None:
 
 
 def _parse_amount_from_text(text: str) -> Decimal | None:
-    match = re.search(r"\$?\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)", text)
+    labeled = re.search(
+        r"(?im)(?:total|amount due|amount|subtotal|balance due)[^0-9-]*(-?[0-9][0-9,]*(?:\.[0-9]{1,2})?)",
+        text,
+    )
+    match = labeled or re.search(r"\$?\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)", text)
     if not match:
         return None
     return Decimal(match.group(1).replace(",", ""))
@@ -251,6 +306,11 @@ def _format_question(code: str, item: ExtractedFinancialItem) -> ExtractedFinanc
         return ExtractedFinancialQuestion(code=code, question="What is the amount for this item?")
     if code == "missing_date":
         return ExtractedFinancialQuestion(code=code, question="What date should I use for this item?")
+    if code == "tax_sensitive_classification":
+        return ExtractedFinancialQuestion(
+            code=code,
+            question="This looks tax-sensitive. What category and tax treatment should I use for this item?",
+        )
     return ExtractedFinancialQuestion(code=code, question=f"Please clarify how to handle {description}.")
 
 
@@ -346,17 +406,26 @@ def _build_extracted_item(
         vendor=vendor,
         customer=customer,
         description=_sanitize_extracted_text(text)[:500] or None,
+        due_date=None,
+        subtotal=None,
         tax_amount=None,
         payment_method=payment_method,
+        invoice_number=None,
+        bill_number=None,
+        account_last4=None,
         candidate_entity_type=candidate_entity_type,  # type: ignore[arg-type]
         confidence=confidence,
         confidence_level=_confidence_level(confidence),  # type: ignore[arg-type]
         missing_fields=missing_fields,
         raw_text_reference=_sanitize_extracted_text(text)[:500] or None,
         file_id=file_id,
+        model_used=None,
+        extraction_method="local_ocr" if source_type in {"image", "pdf"} else "local_text",
     )
     item.questions = [_format_question(code, item) for code in dict.fromkeys(deduped_reason_codes)]
-    return item
+    if source_type == "pdf":
+        item.extraction_method = "local_pdf_text"
+    return _finalize_extracted_item(item)
 
 
 def extract_financial_items_from_text(
@@ -393,6 +462,11 @@ def extract_financial_items_from_text(
         candidate_entity_type=entity_type,
         reason_codes=reason_codes,
     )
+    if (suppress_entity_questions or item.detected_document_type == "receipt") and item.candidate_entity_type == "unknown":
+        item.candidate_entity_type = "personal"
+        item.missing_fields = [field for field in item.missing_fields if field != "entity"]
+        item.questions = [question for question in item.questions if question.code != "personal_business_ambiguous"]
+        item = _finalize_extracted_item(item)
     return [item]
 
 
@@ -467,12 +541,205 @@ def _clamp_decimal(value: Decimal, *, lower: Decimal = Decimal("0.00"), upper: D
     return min(max(value, lower), upper)
 
 
+def _is_low_quality_pdf(extracted_text: str) -> bool:
+    compact = re.sub(r"\s+", "", extracted_text)
+    return len(compact) < 40
+
+
+def _normalize_amount_string(value: str | Decimal | None) -> str | None:
+    if value in (None, ""):
+        return None
+    return str(to_money(value))
+
+
+def _normalize_date_string(value: str | None) -> str | None:
+    parsed = _parse_datetime(value)
+    return parsed.date().isoformat() if parsed else value
+
+
+def _is_tax_sensitive(text: str) -> bool:
+    lower = text.lower()
+    return any(token in lower for token in ("sales tax", "vat", "gst", "iva", "withholding"))
+
+
+def _ensure_question(item: ExtractedFinancialItem, code: str) -> None:
+    if any(question.code == code for question in item.questions):
+        return
+    item.questions.append(_format_question(code, item))
+
+
+def _finalize_extracted_item(item: ExtractedFinancialItem) -> ExtractedFinancialItem:
+    item.date = _normalize_date_string(item.date)
+    item.due_date = _normalize_date_string(item.due_date)
+    item.amount = _normalize_amount_string(item.amount)
+    item.subtotal = _normalize_amount_string(item.subtotal)
+    item.tax_amount = _normalize_amount_string(item.tax_amount)
+
+    reason_codes = [question.code for question in item.questions]
+    description_blob = " ".join(
+        part for part in [item.description, item.merchant, item.vendor, item.customer, item.raw_text_reference] if part
+    )
+    if item.amount is None:
+        if "amount" not in item.missing_fields:
+            item.missing_fields.append("amount")
+        reason_codes.append("missing_amount")
+        _ensure_question(item, "missing_amount")
+    if item.date is None:
+        if "date" not in item.missing_fields:
+            item.missing_fields.append("date")
+        reason_codes.append("missing_date")
+        _ensure_question(item, "missing_date")
+    if item.candidate_entity_type == "unknown":
+        if "entity" not in item.missing_fields:
+            item.missing_fields.append("entity")
+        reason_codes.append("personal_business_ambiguous")
+        _ensure_question(item, "personal_business_ambiguous")
+    if any(token in description_blob.lower() for token in ("owner draw", "reimbursement", "loan from owner", "owner contribution")):
+        reason_codes.append("owner_draw_possible")
+        _ensure_question(item, "owner_draw_possible")
+    if any(token in description_blob.lower() for token in ("amazon", "equipment", "laptop", "computer", "desk", "monitor")):
+        reason_codes.append("asset_vs_expense")
+        _ensure_question(item, "asset_vs_expense")
+    if item.detected_document_type == "bill" and not any(
+        token in description_blob.lower() for token in ("paid", "pagado", "payment", "cash")
+    ):
+        reason_codes.append("payable_status_unknown")
+        _ensure_question(item, "payable_status_unknown")
+    if _is_tax_sensitive(description_blob):
+        reason_codes.append("tax_sensitive_classification")
+        _ensure_question(item, "tax_sensitive_classification")
+
+    item.missing_fields = list(dict.fromkeys(item.missing_fields))
+    deduped_reason_codes = list(dict.fromkeys(reason_codes))
+    item.questions = list({question.code: question for question in item.questions}.values())
+    item.confidence = _calculate_confidence(
+        amount=to_money(item.amount) if item.amount else None,
+        occurred_at=_parse_datetime(item.date),
+        candidate_entity_type=item.candidate_entity_type,
+        document_type=item.detected_document_type,
+        merchant=item.merchant,
+        vendor=item.vendor,
+        customer=item.customer,
+        reason_codes=deduped_reason_codes,
+    )
+    item.confidence_level = _confidence_level(item.confidence)  # type: ignore[assignment]
+    return item
+
+
+async def _load_document_ai_context(
+    db: AsyncSession,
+    *,
+    user_id: uuid.UUID | None,
+    data_size: int,
+    content_type: str,
+) -> DocumentAIContext | None:
+    if user_id is None or content_type not in OPENAI_SUPPORTED_UPLOAD_TYPES:
+        return None
+    settings = get_settings()
+    if data_size > settings.openai_document_max_file_bytes:
+        raise MIAFError("File exceeds max upload size", code="file_too_large")
+
+    user = await db.get(User, user_id)
+    if user is None:
+        return None
+    row = await get_or_create_user_settings(db, user=user)
+    if not row.openai_document_ai_enabled:
+        return None
+    if settings.openai_document_ai_requires_consent and not row.openai_document_ai_consent_granted:
+        return None
+    if row.ai_provider != "openai" or row.ai_api_key_encrypted is None:
+        return None
+    try:
+        api_key = decrypt_secret(row.ai_api_key_encrypted)
+    except Exception as exc:  # pragma: no cover - defensive
+        raise MIAFError("Unable to decrypt the stored OpenAI API key", code="openai_api_key_invalid") from exc
+    return DocumentAIContext(
+        api_key=api_key,
+        settings=settings,
+        vision_model=row.openai_vision_model or settings.openai_vision_model,
+        pdf_model=row.openai_pdf_model or settings.openai_pdf_model,
+        transcription_model=row.openai_transcription_model or settings.openai_transcription_model,
+    )
+
+
+async def _write_ingestion_audit(
+    db: AsyncSession,
+    *,
+    tenant_id: uuid.UUID,
+    entity_id: uuid.UUID,
+    user_id: uuid.UUID | None,
+    action: str,
+    object_id: uuid.UUID | str | None,
+    after: dict | None = None,
+) -> str:
+    audit = await write_audit(
+        db,
+        tenant_id=tenant_id,
+        user_id=user_id,
+        entity_id=entity_id,
+        action=action,
+        object_type="document",
+        object_id=object_id,
+        after=after,
+    )
+    return str(audit.id)
+
+
 def _empty_receipt_fields() -> dict:
     return {
         "merchant": {"value": None, "confidence": "0.0000"},
         "date": {"value": None, "confidence": "0.0000"},
         "total": {"value": None, "confidence": "0.0000"},
     }
+
+
+def _normalize_header(name: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", (name or "").strip().lower()).strip("_")
+
+
+def _resolve_csv_mapping(fieldnames: list[str]) -> CSVColumnMapping:
+    normalized = {_normalize_header(name): name for name in fieldnames if name}
+
+    def find(key: str) -> str | None:
+        for candidate in _CSV_COLUMN_SYNONYMS[key]:
+            match = normalized.get(_normalize_header(candidate))
+            if match:
+                return match
+        return None
+
+    return CSVColumnMapping(
+        date_column=find("date"),
+        amount_column=find("amount"),
+        debit_column=find("debit"),
+        credit_column=find("credit"),
+        description_column=find("description"),
+        merchant_column=find("merchant"),
+        currency_column=find("currency"),
+        external_ref_column=find("external_ref"),
+    )
+
+
+def _csv_mapping_complete(mapping: CSVColumnMapping) -> bool:
+    has_amount = bool(mapping.amount_column or mapping.debit_column or mapping.credit_column)
+    return bool(mapping.date_column and has_amount)
+
+
+def _apply_openai_csv_mapping(mapping: CSVColumnMapping, payload: Any, fieldnames: list[str]) -> CSVColumnMapping:
+    known = set(fieldnames)
+
+    def valid(name: str | None) -> str | None:
+        return name if name in known else None
+
+    return CSVColumnMapping(
+        date_column=mapping.date_column or valid(getattr(payload, "date_column", None)),
+        amount_column=mapping.amount_column or valid(getattr(payload, "amount_column", None)),
+        debit_column=mapping.debit_column or valid(getattr(payload, "debit_column", None)),
+        credit_column=mapping.credit_column or valid(getattr(payload, "credit_column", None)),
+        description_column=mapping.description_column or valid(getattr(payload, "description_column", None)),
+        merchant_column=mapping.merchant_column or valid(getattr(payload, "merchant_column", None)),
+        currency_column=mapping.currency_column,
+        external_ref_column=mapping.external_ref_column,
+    )
 
 
 def _apply_ocr_confidence(extracted_data: dict, ocr_confidence: float) -> tuple[dict, Decimal]:
@@ -569,12 +836,12 @@ async def store_attachment(
     source_transaction_id: uuid.UUID | None = None,
     journal_entry_id: uuid.UUID | None = None,
 ) -> Attachment:
+    settings = get_settings()
     if content_type not in ALLOWED_UPLOAD_TYPES:
         raise MIAFError("Unsupported file type", code="unsupported_file_type")
-    if len(data) > MAX_FILE_BYTES:
+    if len(data) > settings.openai_document_max_file_bytes:
         raise MIAFError("File exceeds max upload size", code="file_too_large")
 
-    settings = get_settings()
     await asyncio.to_thread(ensure_bucket, minio_client, settings.minio_bucket)
     digest = _sha256(data)
     storage_key = f"{tenant_id}/{entity_id}/{digest}/{filename}"
@@ -782,56 +1049,293 @@ async def _extract_document_from_attachment(
     user_id: uuid.UUID | None,
     attachment: Attachment,
     data_override: bytes | None = None,
+    force_openai: bool = False,
 ) -> StoredDocumentOut:
     data = data_override if data_override is not None else await _read_attachment_bytes(attachment)
     detected = detect_upload_type(attachment.filename, attachment.content_type, attachment.size_bytes)
     if detected.input_type == "unsupported":
         raise MIAFError("Unsupported file type", code="unsupported_file_type", details={"warnings": detected.warnings})
+    openai_ctx = await _load_document_ai_context(
+        db,
+        user_id=user_id,
+        data_size=len(data),
+        content_type=detected.content_type,
+    )
+    await _write_ingestion_audit(
+        db,
+        tenant_id=tenant_id,
+        entity_id=entity_id,
+        user_id=user_id,
+        action="document_local_extraction_started",
+        object_id=attachment.id,
+        after={"input_type": detected.input_type},
+    )
 
+    local_text = ""
+    items: list[ExtractedFinancialItem]
+    status_hint = ExtractionStatus.needs_review
     if detected.input_type == "audio":
-        extracted_text = ""
-        items = [
-            ExtractedFinancialItem(
-                source_type="audio",
-                detected_document_type="audio_note",
-                candidate_entity_type="unknown",
-                confidence=Decimal("0.0000"),
-                confidence_level="low",
-                missing_fields=["amount", "date", "entity"],
-                questions=[
-                    ExtractedFinancialQuestion(
-                        code="audio_transcription_pending",
-                        question="Audio transcription is not implemented yet. Please review this note manually or add a text summary.",
+        local_text = ""
+        if openai_ctx is None:
+            items = [
+                _finalize_extracted_item(
+                    ExtractedFinancialItem(
+                        source_type="audio",
+                        detected_document_type="audio_note",
+                        candidate_entity_type="unknown",
+                        confidence=Decimal("0.0000"),
+                        confidence_level="low",
+                        missing_fields=["amount", "date", "entity"],
+                        questions=[
+                            ExtractedFinancialQuestion(
+                                code="audio_transcription_disabled",
+                                question="Audio transcription requires OpenAI document reading to be enabled.",
+                            )
+                        ],
+                        raw_text_reference=None,
+                        file_id=str(attachment.id),
+                        model_used=None,
+                        extraction_method="local_text",
                     )
-                ],
-                raw_text_reference=None,
-                file_id=str(attachment.id),
+                )
+            ]
+        else:
+            await _write_ingestion_audit(
+                db,
+                tenant_id=tenant_id,
+                entity_id=entity_id,
+                user_id=user_id,
+                action="audio_transcription_started",
+                object_id=attachment.id,
+                after={"model": openai_ctx.transcription_model},
             )
-        ]
+            try:
+                transcript = await asyncio.to_thread(
+                    openai_transcribe_audio,
+                    openai_ctx,
+                    file_bytes=data,
+                    filename=attachment.filename,
+                    mime_type=detected.content_type,
+                )
+                local_text, openai_item = await asyncio.to_thread(
+                    openai_extract_from_text,
+                    openai_ctx,
+                    text=transcript,
+                    prompt_context=f"Audio file {attachment.filename}",
+                )
+                openai_item.source_type = "audio"
+                openai_item.detected_document_type = "audio_note"
+                openai_item.file_id = str(attachment.id)
+                openai_item.model_used = (
+                    f"{openai_ctx.transcription_model} -> {openai_item.model_used or openai_ctx.vision_model}"
+                )
+                openai_item.extraction_method = "openai_audio"
+                openai_item.raw_text_reference = transcript[:500]
+                items = [_finalize_extracted_item(openai_item)]
+                await _write_ingestion_audit(
+                    db,
+                    tenant_id=tenant_id,
+                    entity_id=entity_id,
+                    user_id=user_id,
+                    action="audio_transcription_completed",
+                    object_id=attachment.id,
+                    after={"model": openai_ctx.transcription_model},
+                )
+            except MIAFError as exc:
+                items = [
+                    _finalize_extracted_item(
+                        ExtractedFinancialItem(
+                            source_type="audio",
+                            detected_document_type="audio_note",
+                            candidate_entity_type="unknown",
+                            confidence=Decimal("0.0000"),
+                            confidence_level="low",
+                            missing_fields=["amount", "date", "entity"],
+                            questions=[
+                                ExtractedFinancialQuestion(
+                                    code="audio_transcription_failed",
+                                    question="Audio transcription failed. Please review this note manually or add a text summary.",
+                                )
+                            ],
+                            raw_text_reference=None,
+                            file_id=str(attachment.id),
+                            model_used=openai_ctx.transcription_model,
+                            extraction_method="openai_audio",
+                        )
+                    )
+                ]
+                await _write_ingestion_audit(
+                    db,
+                    tenant_id=tenant_id,
+                    entity_id=entity_id,
+                    user_id=user_id,
+                    action="document_openai_extraction_failed",
+                    object_id=attachment.id,
+                    after={"model": openai_ctx.transcription_model, "code": exc.code},
+                )
     elif detected.input_type == "image":
         raw_text, _ocr_confidence = ocr.extract_text_from_image(data)
-        extracted_text = _sanitize_extracted_text(raw_text)
-        items = extract_financial_items_from_text(
-            text=extracted_text or attachment.filename,
+        local_text = _sanitize_extracted_text(raw_text)
+        local_item = extract_financial_items_from_text(
+            text=local_text or attachment.filename,
             source_type="image",
             file_id=str(attachment.id),
-        )
+        )[0]
+        items = [local_item]
+        if openai_ctx is not None and (force_openai or local_item.confidence_level != "high"):
+            try:
+                await _write_ingestion_audit(
+                    db,
+                    tenant_id=tenant_id,
+                    entity_id=entity_id,
+                    user_id=user_id,
+                    action="document_openai_extraction_started",
+                    object_id=attachment.id,
+                    after={"method": "openai_vision", "model": openai_ctx.vision_model},
+                )
+                raw_text_ref, openai_item = await asyncio.to_thread(
+                    openai_extract_image,
+                    openai_ctx,
+                    file_bytes=data,
+                    mime_type=detected.content_type,
+                    filename=attachment.filename,
+                    prompt_context=f"Image document {attachment.filename}",
+                )
+                openai_item.source_type = "image"
+                openai_item.file_id = str(attachment.id)
+                items = [_finalize_extracted_item(openai_item)]
+                local_text = raw_text_ref or local_text
+                await _write_ingestion_audit(
+                    db,
+                    tenant_id=tenant_id,
+                    entity_id=entity_id,
+                    user_id=user_id,
+                    action="document_openai_extraction_completed",
+                    object_id=attachment.id,
+                    after={"method": "openai_vision", "model": openai_item.model_used},
+                )
+            except MIAFError as exc:
+                await _write_ingestion_audit(
+                    db,
+                    tenant_id=tenant_id,
+                    entity_id=entity_id,
+                    user_id=user_id,
+                    action="document_openai_extraction_failed",
+                    object_id=attachment.id,
+                    after={"method": "openai_vision", "model": openai_ctx.vision_model, "code": exc.code},
+                )
     elif detected.input_type == "pdf":
-        extracted_text = _printable_pdf_text(data)
-        items = extract_financial_items_from_text(
-            text=extracted_text or attachment.filename,
+        local_text = _printable_pdf_text(data)
+        local_item = extract_financial_items_from_text(
+            text=local_text or "",
             source_type="pdf",
             file_id=str(attachment.id),
-        )
+        )[0]
+        items = [local_item]
+        if openai_ctx is not None and (
+            force_openai or not local_text or _is_low_quality_pdf(local_text) or local_item.confidence_level == "low"
+        ):
+            try:
+                await _write_ingestion_audit(
+                    db,
+                    tenant_id=tenant_id,
+                    entity_id=entity_id,
+                    user_id=user_id,
+                    action="document_openai_extraction_started",
+                    object_id=attachment.id,
+                    after={"method": "openai_pdf", "model": openai_ctx.pdf_model},
+                )
+                raw_text_ref, openai_item = await asyncio.to_thread(
+                    openai_extract_pdf,
+                    openai_ctx,
+                    file_bytes=data,
+                    filename=attachment.filename,
+                    prompt_context="PDF financial document",
+                )
+                openai_item.source_type = "pdf"
+                openai_item.file_id = str(attachment.id)
+                items = [_finalize_extracted_item(openai_item)]
+                local_text = raw_text_ref or local_text
+                await _write_ingestion_audit(
+                    db,
+                    tenant_id=tenant_id,
+                    entity_id=entity_id,
+                    user_id=user_id,
+                    action="document_openai_extraction_completed",
+                    object_id=attachment.id,
+                    after={"method": "openai_pdf", "model": openai_item.model_used},
+                )
+            except MIAFError as exc:
+                await _write_ingestion_audit(
+                    db,
+                    tenant_id=tenant_id,
+                    entity_id=entity_id,
+                    user_id=user_id,
+                    action="document_openai_extraction_failed",
+                    object_id=attachment.id,
+                    after={"method": "openai_pdf", "model": openai_ctx.pdf_model, "code": exc.code},
+                )
     else:
-        extracted_text = _normalize_text_note(data)
-        text_doc_type = _detect_document_type(extracted_text, source_type="text")
-        items = extract_financial_items_from_text(
-            text=extracted_text or attachment.filename,
+        local_text = _normalize_text_note(data)
+        text_doc_type = _detect_document_type(local_text, source_type="text")
+        local_item = extract_financial_items_from_text(
+            text=local_text or attachment.filename,
             source_type="text",
             file_id=str(attachment.id),
             suppress_entity_questions=text_doc_type == "receipt",
-        )
+        )[0]
+        items = [local_item]
+        if openai_ctx is not None and (force_openai or local_item.confidence_level == "low"):
+            try:
+                await _write_ingestion_audit(
+                    db,
+                    tenant_id=tenant_id,
+                    entity_id=entity_id,
+                    user_id=user_id,
+                    action="document_openai_extraction_started",
+                    object_id=attachment.id,
+                    after={"method": "openai_text", "model": openai_ctx.vision_model},
+                )
+                raw_text_ref, openai_item = await asyncio.to_thread(
+                    openai_extract_from_text,
+                    openai_ctx,
+                    text=local_text,
+                    prompt_context="Manual text note or chat message",
+                )
+                openai_item.source_type = "text"
+                openai_item.file_id = str(attachment.id)
+                items = [_finalize_extracted_item(openai_item)]
+                local_text = raw_text_ref or local_text
+                await _write_ingestion_audit(
+                    db,
+                    tenant_id=tenant_id,
+                    entity_id=entity_id,
+                    user_id=user_id,
+                    action="document_openai_extraction_completed",
+                    object_id=attachment.id,
+                    after={"method": "openai_text", "model": openai_item.model_used},
+                )
+            except MIAFError as exc:
+                await _write_ingestion_audit(
+                    db,
+                    tenant_id=tenant_id,
+                    entity_id=entity_id,
+                    user_id=user_id,
+                    action="document_openai_extraction_failed",
+                    object_id=attachment.id,
+                    after={"method": "openai_text", "model": openai_ctx.vision_model, "code": exc.code},
+                )
+
+    extracted_text = _sanitize_extracted_text(local_text)
+    await _write_ingestion_audit(
+        db,
+        tenant_id=tenant_id,
+        entity_id=entity_id,
+        user_id=user_id,
+        action="document_local_extraction_completed",
+        object_id=attachment.id,
+        after={"method": items[0].extraction_method, "confidence": str(items[0].confidence)},
+    )
 
     source_tx = await _store_source_transaction_for_item(
         db,
@@ -867,13 +1371,19 @@ async def _extract_document_from_attachment(
         "file_extension": detected.file_extension,
         "content_type": detected.content_type,
         "warnings": detected.warnings,
+        "merchant": {"value": top_item.merchant or top_item.vendor or top_item.customer, "confidence": str(top_item.confidence)},
+        "date": {"value": top_item.date, "confidence": str(top_item.confidence)},
+        "total": {"value": top_item.amount, "confidence": str(top_item.confidence)},
+        "reason": "pdf_scanned_or_text_missing"
+        if detected.input_type == "pdf" and not extracted_text and top_item.extraction_method != "openai_pdf"
+        else None,
+        "model_used": top_item.model_used,
+        "extraction_method": top_item.extraction_method,
         "items": [item.model_dump(mode="json") for item in items],
     }
     extraction.confidence_score = top_item.confidence
     extraction.duplicate_detected = duplicate_detected
-    extraction.status = (
-        ExtractionStatus.extracted if top_item.confidence_level == "high" and not top_item.questions else ExtractionStatus.needs_review
-    )
+    extraction.status = ExtractionStatus.extracted if top_item.confidence_level == "high" and not top_item.questions else status_hint
     await db.flush()
 
     accounts = (
@@ -888,6 +1398,17 @@ async def _extract_document_from_attachment(
         item=top_item,
         accounts=accounts,
     )
+    if top_item.questions:
+        top_item.audit_id = await _write_ingestion_audit(
+            db,
+            tenant_id=tenant_id,
+            entity_id=entity_id,
+            user_id=user_id,
+            action="extraction_review_required",
+            object_id=attachment.id,
+            after={"questions": [question.code for question in top_item.questions], "confidence": str(top_item.confidence)},
+        )
+    extraction.extracted_data = {**(extraction.extracted_data or {}), "items": [item.model_dump(mode="json") for item in items]}
     await db.flush()
     return await build_stored_document_out(db, attachment)
 
@@ -973,6 +1494,7 @@ async def rerun_document_extraction(
     tenant_id: uuid.UUID,
     attachment_id: uuid.UUID,
     user_id: uuid.UUID | None,
+    force_openai: bool = False,
 ) -> StoredDocumentOut:
     attachment = await get_attachment_scoped(db, tenant_id=tenant_id, attachment_id=attachment_id)
     entity_id = attachment.entity_id
@@ -984,6 +1506,7 @@ async def rerun_document_extraction(
         entity_id=entity_id,
         user_id=user_id,
         attachment=attachment,
+        force_openai=force_openai,
     )
 
 
@@ -1136,21 +1659,21 @@ async def transcribe_document_audio(
     *,
     tenant_id: uuid.UUID,
     attachment_id: uuid.UUID,
+    user_id: uuid.UUID | None = None,
 ) -> StoredDocumentOut:
     attachment = await get_attachment_scoped(db, tenant_id=tenant_id, attachment_id=attachment_id)
     if attachment.content_type not in AUDIO_CONTENT_TYPES and _file_extension(attachment.filename) not in {".mp3", ".m4a", ".wav", ".ogg"}:
         raise MIAFError("Attachment is not an audio file", code="invalid_audio_file")
-    extraction = await _extraction_for_attachment(db, attachment.id)
-    if extraction is None:
-        raise NotFoundError("Extraction not found", code="extraction_not_found")
-    extraction.extracted_data = {
-        **(extraction.extracted_data or {}),
-        "transcription_status": "planned",
-        "warnings": [*list((extraction.extracted_data or {}).get("warnings", [])), "Audio transcription is not implemented yet."],
-    }
-    extraction.status = ExtractionStatus.needs_review
-    await db.flush()
-    return await build_stored_document_out(db, attachment)
+    if attachment.entity_id is None:
+        raise NotFoundError("Attachment is not linked to an entity", code="entity_not_found")
+    return await _extract_document_from_attachment(
+        db,
+        tenant_id=tenant_id,
+        entity_id=attachment.entity_id,
+        user_id=user_id,
+        attachment=attachment,
+        force_openai=True,
+    )
 
 
 async def ingest_receipt(
@@ -1163,54 +1686,6 @@ async def ingest_receipt(
     content_type: str,
     data: bytes,
 ) -> ReceiptIngestionOut:
-    """Ingest receipts via PDF text fallback, image OCR, or text decode fallback."""
-    candidate = None
-    detected = detect_upload_type(filename, content_type, len(data))
-
-    if detected.input_type == "pdf":
-        extracted_text = _printable_pdf_text(data)
-        extracted_data = {
-            **_empty_receipt_fields(),
-            "reason": "pdf_text_extracted" if extracted_text else "pdf_not_supported_yet",
-        }
-        if extracted_text:
-            extracted_data, confidence = extract_receipt_fields(extracted_text)
-        else:
-            confidence = Decimal("0.0000")
-    elif detected.input_type == "image":
-        raw_text, ocr_confidence = ocr.extract_text_from_image(data)
-        extracted_text = _sanitize_extracted_text(raw_text)
-        extracted_data, confidence = extract_receipt_fields(extracted_text)
-        extracted_data, confidence = _apply_ocr_confidence(extracted_data, ocr_confidence)
-    else:
-        extracted_text = _sanitize_extracted_text(data.decode("utf-8", errors="ignore"))
-        extracted_data, confidence = extract_receipt_fields(extracted_text)
-
-    merchant = extracted_data["merchant"]["value"]
-    amount_value = extracted_data["total"]["value"]
-    date_value = extracted_data["date"]["value"]
-    amount = to_money(amount_value) if amount_value else None
-    occurred_at = _parse_datetime(date_value)
-
-    existing_attachment = (
-        await db.execute(select(Attachment).where(Attachment.tenant_id == tenant_id, Attachment.sha256 == _sha256(data)))
-    ).scalar_one_or_none()
-
-    source_tx = SourceTransaction(
-        entity_id=entity_id,
-        kind="ocr",
-        external_ref=None,
-        occurred_at=occurred_at,
-        amount=amount,
-        currency="USD" if amount is not None else None,
-        merchant=merchant,
-        raw={"filename": filename, "content_type": content_type},
-        content_hash=_content_hash(extracted_text),
-        status=SourceTransactionStatus.pending,
-    )
-    db.add(source_tx)
-    await db.flush()
-
     attachment = await store_attachment(
         db,
         tenant_id=tenant_id,
@@ -1219,91 +1694,21 @@ async def ingest_receipt(
         filename=filename,
         content_type=content_type,
         data=data,
-        source_transaction_id=source_tx.id,
     )
-
-    extraction = DocumentExtraction(
+    stored = await _extract_document_from_attachment(
+        db,
         tenant_id=tenant_id,
         entity_id=entity_id,
-        attachment_id=attachment.id,
-        source_transaction_id=source_tx.id,
-        extraction_kind="receipt",
-        status=(
-            ExtractionStatus.needs_review
-            if content_type == "application/pdf" or extracted_text == ""
-            else ExtractionStatus.extracted if confidence >= Decimal("0.80") else ExtractionStatus.needs_review
-        ),
-        extracted_text=extracted_text,
-        extracted_data=extracted_data,
-        confidence_score=confidence,
-        duplicate_detected=_detect_duplicate(existing_attachment, merchant, amount, occurred_at),
-    )
-    db.add(extraction)
-    await db.flush()
-
-    items = extract_financial_items_from_text(
-        text=extracted_text or merchant or filename,
-        source_type=detected.input_type if detected.input_type != "unsupported" else "text",
-        file_id=str(attachment.id),
-        source_id=str(source_tx.id),
-        suppress_entity_questions=True,
-    )
-    if items and (detected.input_type != "pdf" or extracted_text):
-        extraction.extracted_data = {
-            **(extraction.extracted_data or extracted_data),
-            "merchant": extracted_data["merchant"],
-            "date": extracted_data["date"],
-            "total": extracted_data["total"],
-            "reason": extracted_data.get("reason"),
-            "items": [item.model_dump(mode="json") for item in items],
-            "input_type": detected.input_type,
-            "content_type": detected.content_type,
-        }
-        extraction.confidence_score = max(extraction.confidence_score or Decimal("0.0000"), items[0].confidence)
-        extraction.status = (
-            ExtractionStatus.extracted
-            if extraction.status == ExtractionStatus.extracted and not items[0].questions
-            else ExtractionStatus.needs_review if items[0].questions else extraction.status
-        )
-        await db.flush()
-
-    if detected.input_type != "pdf":
-        expense_account = await _default_expense_account(db, entity_id, merchant)
-        cash_account = (
-            await db.execute(select(Account).where(Account.entity_id == entity_id, Account.code == "1110"))
-        ).scalar_one_or_none()
-        if cash_account is None:
-            cash_account = expense_account
-        suggestion = {
-            "entry_date": occurred_at.date().isoformat() if occurred_at else utcnow().date().isoformat(),
-            "memo": merchant or filename,
-            "lines": [
-                {"account_id": str(expense_account.id), "debit": str(amount or ZERO), "credit": "0.00"},
-                {"account_id": str(cash_account.id), "debit": "0.00", "credit": str(amount or ZERO)},
-            ],
-        }
-        candidate = ExtractionCandidate(
-            tenant_id=tenant_id,
-            entity_id=entity_id,
-            document_extraction_id=extraction.id,
-            source_transaction_id=source_tx.id,
-            suggested_account_id=expense_account.id,
-            suggested_memo=merchant or filename,
-            suggested_entry=suggestion,
-            confidence_score=confidence,
-            status=CandidateStatus.suggested,
-            rationale="deterministic receipt heuristic",
-        )
-        if items and items[0].questions:
-            candidate.status = CandidateStatus.suggested
-            candidate.rationale = f"deterministic receipt heuristic; questions={','.join(question.code for question in items[0].questions)}"
-        db.add(candidate)
-        await db.flush()
-
-    return ReceiptIngestionOut(
+        user_id=user_id,
         attachment=attachment,
-        extraction=extraction,
-        candidate=candidate,
+        data_override=data,
+    )
+    if stored.extraction is None:
+        raise NotFoundError("Extraction not found", code="extraction_not_found")
+    return ReceiptIngestionOut(
+        attachment=stored.attachment,
+        extraction=stored.extraction,
+        candidate=stored.candidate,
     )
 
 
@@ -1369,6 +1774,15 @@ async def approve_candidate(
     attachment = await db.get(Attachment, extraction.attachment_id)
     if attachment is not None:
         attachment.journal_entry_id = entry.id
+    await _write_ingestion_audit(
+        db,
+        tenant_id=candidate.tenant_id,
+        entity_id=entity_id,
+        user_id=user_id,
+        action="draft_created_from_extraction",
+        object_id=extraction.attachment_id,
+        after={"journal_entry_id": str(entry.id), "candidate_id": str(candidate.id)},
+    )
     await db.flush()
     return CandidateApprovalOut(candidate=candidate, journal_entry_id=entry.id)
 
@@ -1483,12 +1897,32 @@ async def import_csv_transactions(
     text = data.decode("utf-8", errors="ignore")
     reader = csv.DictReader(io.StringIO(text))
     rows = list(reader)
-    fieldnames = {name.strip().lower() for name in (reader.fieldnames or []) if name}
+    fieldnames = [name for name in (reader.fieldnames or []) if name]
     if not rows:
         raise MIAFError("CSV import is empty", code="csv_empty")
-    if not ({"date", "occurred_at"} & fieldnames):
+    mapping = _resolve_csv_mapping(fieldnames)
+
+    openai_ctx = await _load_document_ai_context(
+        db,
+        user_id=user_id,
+        data_size=len(data),
+        content_type=detected.content_type,
+    )
+    if openai_ctx is not None and not _csv_mapping_complete(mapping):
+        try:
+            payload = await asyncio.to_thread(
+                openai_map_csv_columns,
+                openai_ctx,
+                sample_rows=[{key: str(value) for key, value in row.items()} for row in rows[:5]],
+                columns=fieldnames,
+                remembered_mappings={},
+            )
+            mapping = _apply_openai_csv_mapping(mapping, payload, fieldnames)
+        except MIAFError:
+            log.warning("openai CSV mapping failed; falling back to local mapping only")
+    if not mapping.date_column:
         raise MIAFError("CSV import is missing a date column", code="csv_missing_date_column")
-    if not ({"amount", "total", "debit", "credit"} & fieldnames):
+    if not (mapping.amount_column or mapping.debit_column or mapping.credit_column):
         raise MIAFError("CSV import is missing an amount column", code="csv_missing_amount_column")
 
     attachment = await store_attachment(
@@ -1527,10 +1961,20 @@ async def import_csv_transactions(
     duplicate_rows = 0
     for row in rows:
         try:
-            occurred_at = _parse_datetime(row.get("date") or row.get("occurred_at"))
-            amount_raw = row.get("amount") or row.get("total") or row.get("debit") or row.get("credit")
+            occurred_at = _parse_datetime(row.get(mapping.date_column) if mapping.date_column else None)
+            amount_raw = row.get(mapping.amount_column) if mapping.amount_column else None
+            if amount_raw in (None, "") and mapping.debit_column:
+                debit_raw = row.get(mapping.debit_column)
+                if debit_raw not in (None, ""):
+                    amount_raw = f"-{str(debit_raw).lstrip('-')}"
+            if amount_raw in (None, "") and mapping.credit_column:
+                amount_raw = row.get(mapping.credit_column)
             amount = to_money(amount_raw) if amount_raw not in (None, "") else None
-            merchant = row.get("merchant") or row.get("description") or row.get("memo")
+            merchant = (
+                (row.get(mapping.merchant_column) if mapping.merchant_column else None)
+                or (row.get(mapping.description_column) if mapping.description_column else None)
+            )
+            currency_value = row.get(mapping.currency_column) if mapping.currency_column else row.get("currency")
             content_hash = _content_hash("|".join([row.get(k, "") for k in sorted(row.keys())]))
             existing = (
                 await db.execute(
@@ -1546,10 +1990,10 @@ async def import_csv_transactions(
             source_tx = SourceTransaction(
                 entity_id=entity_id,
                 kind="csv_row",
-                external_ref=row.get("external_ref") or row.get("id"),
+                external_ref=(row.get(mapping.external_ref_column) if mapping.external_ref_column else None) or row.get("id"),
                 occurred_at=occurred_at,
                 amount=amount,
-                currency=(row.get("currency") or "USD")[:3] if amount is not None else row.get("currency"),
+                currency=(currency_value or "USD")[:3] if amount is not None else currency_value,
                 merchant=merchant,
                 raw=row,
                 content_hash=content_hash,

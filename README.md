@@ -53,6 +53,22 @@ Once the stack is up:
 8. Use `/agent` for guided bookkeeping, summaries, and draft actions.
 9. Use `/dashboard`, `/business/reports`, `/alerts`, and `/audit-log` for ongoing review.
 
+## Enable AI Document Reading
+
+1. Open `/settings`.
+2. Set the AI provider to `openai` and save a valid OpenAI API key.
+3. Turn on `Enable OpenAI document reading`.
+4. Turn on `Allow MIAF to send uploaded documents to OpenAI for extraction`.
+5. Choose the vision, PDF, and transcription models.
+6. Upload a document in `/documents`.
+7. Review the extracted draft before posting anything.
+
+Privacy warning:
+
+- Local extraction stays on-device.
+- OpenAI document reading sends document bytes or audio bytes to your configured OpenAI account for extraction.
+- MIAF keeps the accounting engine deterministic and does not let OpenAI post entries directly.
+
 ## Manual Docker Setup
 
 The existing Docker/manual path remains supported and is the fallback for users who do not want the curl installer.
@@ -113,6 +129,13 @@ Important local variables:
   - `ANTHROPIC_API_KEY`
   - `GEMINI_API_KEY`
   - These are optional because the UI also supports encrypted per-user provider setup in `/settings`.
+- OpenAI document reading
+  - `OPENAI_DOCUMENT_AI_REQUIRES_CONSENT`
+  - `OPENAI_VISION_MODEL`
+  - `OPENAI_PDF_MODEL`
+  - `OPENAI_TRANSCRIPTION_MODEL`
+  - `OPENAI_DOCUMENT_MAX_FILE_MB`
+  - `OPENAI_DOCUMENT_TIMEOUT_SECONDS`
 - Integrations and automation
   - `TELEGRAM_WEBHOOK_SECRET`
   - `BACKUP_RETENTION_DAYS`
@@ -192,13 +215,13 @@ Accurate to the current codebase:
 - Agent chat
   - `/agent` supports chat, tool planning, report explanations, memory access, and draft-oriented accounting actions with explicit confirmation for sensitive steps.
 - Document and CSV ingestion
-  - `/documents` supports file upload, text ingestion, CSV import, review questions, reclassification, draft creation, and rejection.
+  - `/documents` supports file upload, text ingestion, CSV import, review questions, local reprocessing, OpenAI reprocessing, draft creation, and rejection.
 - File-type ingestion status
   - CSV: implemented.
   - Text notes: implemented.
-  - Image OCR: implemented with Tesseract.
-  - PDF: initial support with embedded-text extraction and safe fallback scraping; scanned-PDF OCR is not implemented yet.
-  - Audio: initial support for storage and review, but transcription is still placeholder behavior.
+  - Image OCR: implemented with Tesseract, with optional OpenAI vision fallback for low-confidence extraction.
+  - PDF: embedded-text extraction is local first, with optional OpenAI PDF extraction for scanned or low-text PDFs.
+  - Audio: optional OpenAI transcription and extraction when document reading is enabled; otherwise audio stays review-only.
 - Draft journal entries
   - CSV imports and document workflows can create draft journal entries for human review.
 - Corrections and learning
@@ -218,10 +241,9 @@ Accurate to the current codebase:
 
 Still partial or planned:
 
-- Scanned-PDF OCR fallback is not implemented yet.
-- Audio transcription is not implemented yet.
 - Broader multi-tenant collaboration is still limited; the product is optimized for an owner-led workspace.
 - Production hardening, off-host backups, and operator monitoring remain an ops responsibility.
+- XLSX ingestion is still planned rather than implemented.
 
 ## Troubleshooting
 
@@ -239,10 +261,14 @@ Still partial or planned:
   - Check `docker compose logs minio --tail=100`. Confirm `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD`, `MINIO_ACCESS_KEY`, and `MINIO_SECRET_KEY` line up. In dev, the console is at `http://127.0.0.1:9001`.
 - AI provider not working
   - Confirm the provider and model in `/settings`, then re-enter the API key. If you want local deterministic behavior only, switch to `heuristic`.
+- OpenAI document reading not running
+  - Confirm the provider is `openai`, a valid OpenAI API key is saved, `Enable OpenAI document reading` is on, and consent to send uploaded documents is also on.
 - CSV upload problems
-  - MIAF expects date and amount-style columns. Check [docs/INGESTION.md](./docs/INGESTION.md) and review the pending drafts queue after import.
+  - MIAF still parses rows locally. OpenAI may suggest column mapping, but it does not calculate totals or post entries. Check [docs/INGESTION.md](./docs/INGESTION.md) and review the pending drafts queue after import.
 - `pypdf` missing after an old build
   - Rebuild the API image with `make build` or rerun the installer so the current `apps/api/requirements.txt` is installed.
+- Audio transcription is disabled
+  - Turn on OpenAI document reading and consent in `/settings`, then reprocess the file from `/documents`.
 - Migration errors
   - Bring the stack up first, then run `docker compose exec -T api python -m app.cli migrate`. For production, follow the admin-URL migration notes in [docs/DEPLOY.md](./docs/DEPLOY.md).
 - Tailscale is not reachable

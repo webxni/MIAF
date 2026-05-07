@@ -20,6 +20,11 @@ def _snapshot(row: UserSettings) -> dict:
         "ai_model": row.ai_model,
         "ai_api_key_hint": row.ai_api_key_hint,
         "ai_api_key_present": row.ai_api_key_encrypted is not None,
+        "openai_document_ai_enabled": row.openai_document_ai_enabled,
+        "openai_document_ai_consent_granted": row.openai_document_ai_consent_granted,
+        "openai_vision_model": row.openai_vision_model,
+        "openai_pdf_model": row.openai_pdf_model,
+        "openai_transcription_model": row.openai_transcription_model,
     }
 
 
@@ -64,6 +69,16 @@ async def update(
         row.ai_provider = payload.ai_provider
     if "ai_model" in provided_fields:
         row.ai_model = payload.ai_model
+    if "openai_document_ai_enabled" in provided_fields:
+        row.openai_document_ai_enabled = bool(payload.openai_document_ai_enabled)
+    if "openai_document_ai_consent_granted" in provided_fields:
+        row.openai_document_ai_consent_granted = bool(payload.openai_document_ai_consent_granted)
+    if "openai_vision_model" in provided_fields:
+        row.openai_vision_model = payload.openai_vision_model
+    if "openai_pdf_model" in provided_fields:
+        row.openai_pdf_model = payload.openai_pdf_model
+    if "openai_transcription_model" in provided_fields:
+        row.openai_transcription_model = payload.openai_transcription_model
 
     if payload.ai_api_key_clear:
         row.ai_api_key_encrypted = None

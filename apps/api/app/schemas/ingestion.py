@@ -150,10 +150,21 @@ DetectedDocumentType = Literal[
     "bank_transaction",
     "audio_note",
     "text_note",
+    "statement",
     "unknown",
 ]
 CandidateEntityType = Literal["personal", "business", "unknown"]
 ConfidenceLevel = Literal["high", "medium", "low"]
+ExtractionMethod = Literal[
+    "local_csv",
+    "local_pdf_text",
+    "local_ocr",
+    "local_text",
+    "openai_vision",
+    "openai_pdf",
+    "openai_audio",
+    "openai_text",
+]
 
 
 class ExtractedFinancialQuestion(BaseModel):
@@ -175,15 +186,20 @@ class ExtractedFinancialItem(BaseModel):
     source_type: str
     detected_document_type: DetectedDocumentType
     date: str | None = None
+    due_date: str | None = None
     amount: str | None = None
+    subtotal: str | None = None
+    tax_amount: str | None = None
     currency: str | None = None
     merchant: str | None = None
     vendor: str | None = None
     customer: str | None = None
     description: str | None = None
     line_items: list[dict] = Field(default_factory=list)
-    tax_amount: str | None = None
     payment_method: str | None = None
+    invoice_number: str | None = None
+    bill_number: str | None = None
+    account_last4: str | None = None
     candidate_entity_type: CandidateEntityType = "unknown"
     candidate_accounts: list[CandidateAccountOut] = Field(default_factory=list)
     confidence: Decimal = Decimal("0.0000")
@@ -192,6 +208,8 @@ class ExtractedFinancialItem(BaseModel):
     questions: list[ExtractedFinancialQuestion] = Field(default_factory=list)
     raw_text_reference: str | None = None
     file_id: str | None = None
+    model_used: str | None = None
+    extraction_method: ExtractionMethod = "local_csv"
     audit_id: str | None = None
 
 

@@ -17,6 +17,11 @@ class UserSettingsUpdate(BaseModel):
     ai_model: str | None = Field(default=None, max_length=64)
     ai_api_key: str | None = Field(default=None, min_length=1, max_length=4000)
     ai_api_key_clear: bool = False
+    openai_document_ai_enabled: bool | None = None
+    openai_document_ai_consent_granted: bool | None = None
+    openai_vision_model: str | None = Field(default=None, max_length=64)
+    openai_pdf_model: str | None = Field(default=None, max_length=64)
+    openai_transcription_model: str | None = Field(default=None, max_length=64)
 
     @model_validator(mode="after")
     def validate_api_key_flags(self) -> "UserSettingsUpdate":
@@ -38,5 +43,10 @@ class UserSettingsOut(BaseModel):
     ai_model: str | None
     ai_api_key_hint: str | None
     ai_api_key_present: bool
+    openai_document_ai_enabled: bool
+    openai_document_ai_consent_granted: bool
+    openai_vision_model: str | None
+    openai_pdf_model: str | None
+    openai_transcription_model: str | None
     created_at: datetime
     updated_at: datetime

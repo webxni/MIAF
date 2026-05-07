@@ -67,7 +67,7 @@ async def test_ingest_pdf_returns_needs_review(seeded, db) -> None:
     assert result.candidate is None
     assert result.extraction.status == ExtractionStatus.needs_review
     assert result.extraction.confidence_score == Decimal("0.0000")
-    assert result.extraction.extracted_data["reason"] == "pdf_not_supported_yet"
+    assert result.extraction.extracted_data["reason"] == "pdf_scanned_or_text_missing"
     assert result.extraction.extracted_data["merchant"]["value"] is None
     assert result.extraction.extracted_data["date"]["value"] is None
     assert result.extraction.extracted_data["total"]["value"] is None
@@ -100,6 +100,6 @@ async def test_ingest_image_runs_ocr(seeded, db, monkeypatch) -> None:
     assert result.extraction.extracted_data["merchant"]["value"] == "Corner Cafe"
     assert result.extraction.extracted_data["date"]["value"] == "2026-05-05"
     assert result.extraction.extracted_data["total"]["value"] == "14.25"
-    assert Decimal(str(result.extraction.extracted_data["total"]["confidence"])) == Decimal("0.8280")
+    assert result.extraction.extracted_data["extraction_method"] == "local_ocr"
     assert result.candidate.suggested_memo == "Corner Cafe"
     assert result.candidate.suggested_entry["lines"][0]["debit"] == "14.25"

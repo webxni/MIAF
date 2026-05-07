@@ -11,22 +11,20 @@ Implemented today:
 - CSV bank export
 - PDF document upload
 - image upload: `png`, `jpg`, `jpeg`, `webp`
-- audio upload: `mp3`, `m4a`, `wav`, `ogg`
+- audio upload: `mp3`, `mp4`, `mpeg`, `mpga`, `m4a`, `wav`, `ogg`, `webm`
 
 Current handling level:
 
-- Text: implemented
-- CSV: implemented
-- Image OCR: implemented with Tesseract
-- PDF: implemented with safe embedded-text fallback only
-- Audio: stored and routed into review, transcription still placeholder
+- Text: implemented locally, with optional OpenAI extraction for ambiguous notes
+- CSV: implemented locally, with optional OpenAI column mapping suggestions only
+- Image OCR: implemented with Tesseract, with optional OpenAI vision fallback
+- PDF: implemented with local embedded-text extraction, with optional OpenAI PDF fallback for scanned or low-text PDFs
+- Audio: review-only by default, with optional OpenAI transcription and extraction when enabled
 
 Not implemented as a specialized parser yet:
 
 - XLSX import
 - full invoice/bill workflow creation from extracted documents
-- production-grade speech-to-text
-- scanned-PDF OCR fallback
 
 ## Unified ingestion pipeline
 
@@ -60,6 +58,9 @@ Safety rules in the current implementation:
 - CSV rows use deterministic content hashes and duplicate rows are skipped
 - duplicate document detections are surfaced for review
 - OCR and parsing results are treated as suggestions, not truth
+- OpenAI document reading is disabled by default
+- external document processing requires explicit user enablement and consent
+- MIAF never lets OpenAI post journal entries directly
 
 ## Type detection
 
@@ -119,39 +120,36 @@ Current behavior:
 - store the original PDF
 - attempt extraction with `pypdf` first
 - fall back to safe printable-text scraping if structured extraction is weak
-- normalize any extracted text into a structured item
-- if no useful text is available, keep the document in review status
-
-What is still missing:
-
-- scanned-PDF OCR fallback
-- page-level extraction details
-- robust invoice/bill field extraction
+- normalize extracted text into a structured item locally
+- if the PDF appears scanned or the local text is too weak, optionally send it to OpenAI PDF extraction when enabled
+- if OpenAI is disabled or fails, keep the document in review status
 
 ### Image
 
 Current behavior:
 
-- OCR with Tesseract
+- OCR with Tesseract first
 - normalize text into extracted fields
 - generate confidence and review questions
+- optionally escalate low-confidence images to OpenAI vision extraction
 - create candidate draft only when ambiguity is low enough
 
 ## Audio workflow
 
-Audio files are accepted and stored, but transcription is still placeholder behavior.
+Audio files are accepted and stored.
 
-Current behavior:
+Default behavior:
 
 - store the original audio file
 - mark extraction as `needs_review`
 - create a low-confidence `audio_note` item
-- create an explicit question telling the user that transcription is not implemented yet
+- tell the user that audio transcription requires OpenAI document reading to be enabled
 
-Recommended current user flow:
+When OpenAI document reading is enabled:
 
-- upload the audio note if you want it preserved as source material
-- add a manual text summary through `/ingest/text` or the Documents page
+- send the uploaded audio bytes to the configured OpenAI transcription model
+- take the transcript through the same financial extraction schema as text notes
+- still keep human review and deterministic accounting boundaries
 
 ## Text workflow
 
@@ -211,6 +209,16 @@ Examples:
 
 The current review UI is on `/documents`.
 
+## Enable AI document reading
+
+1. Open `/settings`.
+2. Save an OpenAI API key.
+3. Turn on `Enable OpenAI document reading`.
+4. Turn on `Allow MIAF to send uploaded documents to OpenAI for extraction`.
+5. Choose the vision, PDF, and transcription models.
+6. Upload or reprocess a document in `/documents`.
+7. Review the result before posting anything.
+
 ## Learning from corrections
 
 MIAF learns most clearly today from merchant corrections in the source-transaction and draft-entry flow.
@@ -243,6 +251,7 @@ Current ingestion-related endpoints:
 - `GET /documents`
 - `GET /documents/{id}`
 - `POST /documents/{id}/extract`
+- `POST /documents/{id}/extract?mode=openai`
 - `POST /documents/{id}/classify`
 - `POST /documents/{id}/create-draft`
 - `POST /documents/{id}/approve`

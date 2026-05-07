@@ -10,7 +10,9 @@ import {
   createDraftFromDocument,
   deleteJournalEntry,
   entities,
+  extractDocument,
   findEntityByMode,
+  getSettings,
   ingestText,
   listAccounts,
   listDocuments,
@@ -25,6 +27,7 @@ import {
   type JournalLineInput,
   type PendingDraft,
   type StoredDocument,
+  type UserSettings,
 } from "../../_lib/api";
 
 type DraftEntityState = {
@@ -73,6 +76,7 @@ export default function DocumentsPage() {
   const [documents, setDocuments] = useState<StoredDocument[] | null>(null);
   const [documentsError, setDocumentsError] = useState<string | null>(null);
   const [rowState, setRowState] = useState<Record<string, DraftRowState>>({});
+  const [settings, setSettings] = useState<UserSettings | null>(null);
 
   async function loadPendingDrafts(activeRef?: { current: boolean }) {
     try {
@@ -143,6 +147,11 @@ export default function DocumentsPage() {
     const activeRef = { current: true };
     void loadPendingDrafts(activeRef);
     void loadDocuments(activeRef);
+    getSettings().then((value) => {
+      if (activeRef.current) setSettings(value);
+    }).catch(() => {
+      // ignore settings fetch errors on this page
+    });
     return () => {
       activeRef.current = false;
     };
@@ -229,8 +238,20 @@ export default function DocumentsPage() {
     }
   }
 
-  async function handleDocumentAction(attachmentId: string, action: "classify" | "draft" | "reject" | "answer") {
+  async function handleDocumentAction(attachmentId: string, action: "classify" | "draft" | "reject" | "answer" | "extract" | "extractOpenAI") {
     try {
+      if (action === "extract") {
+        const updated = await extractDocument(attachmentId, "auto");
+        setDocuments((current) => current?.map((item) => (item.attachment.id === attachmentId ? updated : item)) ?? current);
+        setMessage("Document reprocessed.");
+        return;
+      }
+      if (action === "extractOpenAI") {
+        const updated = await extractDocument(attachmentId, "openai");
+        setDocuments((current) => current?.map((item) => (item.attachment.id === attachmentId ? updated : item)) ?? current);
+        setMessage("Document reprocessed with OpenAI.");
+        return;
+      }
       if (action === "classify") {
         const updated = await classifyDocument(attachmentId);
         setDocuments((current) => current?.map((item) => (item.attachment.id === attachmentId ? updated : item)) ?? current);
@@ -264,6 +285,25 @@ export default function DocumentsPage() {
     } catch (error) {
       setMessage(errorMessage(error, "Document action failed"));
     }
+  }
+
+  function supportsOpenAiReprocess(document: StoredDocument): boolean {
+    if (!settings?.openai_document_ai_enabled || !settings?.openai_document_ai_consent_granted) return false;
+    const type = document.attachment.content_type;
+    return ["application/pdf", "image/png", "image/jpeg", "image/jpg", "image/webp", "audio/mpeg", "audio/mp3", "audio/mp4", "audio/m4a", "audio/x-m4a", "audio/wav", "audio/x-wav", "audio/ogg", "application/ogg", "audio/webm", "video/webm", "text/plain", "application/octet-stream"].includes(type);
+  }
+
+  function processingState(document: StoredDocument): string {
+    const item = document.extracted_items[0] ?? null;
+    if (!item) return "Needs review";
+    if (document.extraction?.status === "rejected") return "Extraction failed";
+    if (!settings?.openai_document_ai_enabled && document.attachment.content_type.startsWith("audio/")) return "OpenAI document reading disabled";
+    if (item.extraction_method.startsWith("openai_")) return "Sent to OpenAI for extraction";
+    if (item.questions.some((question) => question.code === "audio_transcription_disabled")) return "Audio transcription disabled";
+    if (item.questions.some((question) => question.code === "audio_transcription_failed")) return "Extraction failed";
+    if (document.candidate) return "Draft ready";
+    if (item.questions.length > 0 || document.extraction?.status === "needs_review") return "Needs review";
+    return "Processing locally";
   }
 
   function setDraftState(draftId: string, patch: Partial<DraftRowState>) {
@@ -408,6 +448,8 @@ export default function DocumentsPage() {
             {documents.map((document) => {
               const item = document.extracted_items[0] ?? null;
               const duplicate = document.extraction?.duplicate_detected ?? false;
+              const openAiEnabled = supportsOpenAiReprocess(document);
+              const stateLabel = processingState(document);
               return (
                 <article key={document.attachment.id} className="rounded-2xl bg-[var(--surface)] p-4">
                   <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
@@ -427,6 +469,11 @@ export default function DocumentsPage() {
                             {item.detected_document_type}
                           </span>
                         ) : null}
+                        {item ? (
+                          <span className="rounded-full bg-[var(--panel)] px-3 py-1 text-xs uppercase tracking-[0.2em] text-[var(--muted)]">
+                            {item.extraction_method}
+                          </span>
+                        ) : null}
                         {duplicate ? (
                           <span className="rounded-full bg-[var(--danger-bg)] px-3 py-1 text-xs uppercase tracking-[0.2em] text-[var(--danger-ink)]">
                             duplicate
@@ -438,13 +485,29 @@ export default function DocumentsPage() {
                         {item?.date ?? "No date"} · {item?.candidate_entity_type ?? "unknown entity"}
                       </p>
                       <p className="mt-2 text-sm text-[var(--muted)]">
+                        State: {stateLabel}
+                        {item?.model_used ? ` · Model: ${item.model_used}` : ""}
+                        {item ? ` · ${item.extraction_method.startsWith("openai_") ? "OpenAI used" : "Local extraction"}` : ""}
+                      </p>
+                      <p className="mt-2 text-sm text-[var(--muted)]">
                         {item?.merchant ?? item?.vendor ?? item?.customer ?? "No merchant/vendor/customer detected"}
                       </p>
+                      {item?.invoice_number || item?.bill_number || item?.due_date ? (
+                        <p className="mt-2 text-sm text-[var(--muted)]">
+                          {item.invoice_number ? `Invoice #${item.invoice_number}` : item.bill_number ? `Bill #${item.bill_number}` : "No document number"}
+                          {item.due_date ? ` · Due ${item.due_date}` : ""}
+                        </p>
+                      ) : null}
                       <p className="mt-2 text-sm">
                         Confidence: {item?.confidence_level ?? "low"}
                         {item?.questions.length ? ` · ${item.questions.length} open question${item.questions.length === 1 ? "" : "s"}` : ""}
                         {document.candidate?.rationale ? ` · ${document.candidate.rationale}` : ""}
                       </p>
+                      {item?.missing_fields.length ? (
+                        <p className="mt-2 text-sm text-[var(--muted)]">
+                          Missing fields: {item.missing_fields.join(", ")}
+                        </p>
+                      ) : null}
                       {item?.raw_text_reference ? (
                         <pre className="mt-3 overflow-x-auto rounded-xl bg-[var(--panel)] p-3 text-xs text-[var(--muted)]">
                           {item.raw_text_reference}
@@ -462,6 +525,22 @@ export default function DocumentsPage() {
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2 xl:justify-end">
+                      <button
+                        type="button"
+                        onClick={() => void handleDocumentAction(document.attachment.id, "extract")}
+                        className="rounded-xl border border-[var(--line)] px-3 py-2 text-sm font-semibold"
+                      >
+                        Reprocess locally
+                      </button>
+                      {openAiEnabled ? (
+                        <button
+                          type="button"
+                          onClick={() => void handleDocumentAction(document.attachment.id, "extractOpenAI")}
+                          className="rounded-xl border border-[var(--line)] px-3 py-2 text-sm font-semibold"
+                        >
+                          Reprocess with OpenAI
+                        </button>
+                      ) : null}
                       <button
                         type="button"
                         onClick={() => void handleDocumentAction(document.attachment.id, "classify")}

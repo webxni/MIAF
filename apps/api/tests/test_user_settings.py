@@ -46,6 +46,8 @@ async def test_settings_get_auto_creates_row(client: AsyncClient, seeded: dict, 
     assert body["fiscal_year_start_month"] == 1
     assert body["ai_api_key_present"] is False
     assert body["ai_api_key_hint"] is None
+    assert body["openai_document_ai_enabled"] is False
+    assert body["openai_document_ai_consent_granted"] is False
 
     row = (
         await db.execute(
@@ -67,6 +69,11 @@ async def test_settings_put_updates_fields_and_persists(client: AsyncClient, see
             "fiscal_year_start_month": 4,
             "ai_provider": "openai",
             "ai_model": "gpt-4.1-mini",
+            "openai_document_ai_enabled": True,
+            "openai_document_ai_consent_granted": True,
+            "openai_vision_model": "gpt-4o-mini",
+            "openai_pdf_model": "gpt-4o-mini",
+            "openai_transcription_model": "gpt-4o-mini-transcribe",
         },
     )
 
@@ -77,6 +84,11 @@ async def test_settings_put_updates_fields_and_persists(client: AsyncClient, see
     assert body["fiscal_year_start_month"] == 4
     assert body["ai_provider"] == "openai"
     assert body["ai_model"] == "gpt-4.1-mini"
+    assert body["openai_document_ai_enabled"] is True
+    assert body["openai_document_ai_consent_granted"] is True
+    assert body["openai_vision_model"] == "gpt-4o-mini"
+    assert body["openai_pdf_model"] == "gpt-4o-mini"
+    assert body["openai_transcription_model"] == "gpt-4o-mini-transcribe"
 
     row = (
         await db.execute(

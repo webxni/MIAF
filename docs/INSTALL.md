@@ -80,8 +80,9 @@ After the stack is healthy:
 4. Open `/settings`.
 5. Set jurisdiction, base currency, fiscal year start month, and AI provider.
 6. Add an AI provider key if you want OpenAI, Anthropic, or Gemini. If not, keep `heuristic`.
-7. Upload a CSV or source document in `/documents`.
-8. Use `/agent`, `/dashboard`, `/business/reports`, `/alerts`, and `/audit-log`.
+7. If you want external document extraction, enable `AI document reading` and grant consent in `/settings`.
+8. Upload a CSV or source document in `/documents`.
+9. Use `/agent`, `/dashboard`, `/business/reports`, `/alerts`, and `/audit-log`.
 
 ## Update
 
@@ -153,10 +154,41 @@ Variables to set carefully:
 - `MINIO_ROOT_PASSWORD`
 - `AUTOMATION_TOKEN`
 - optional provider keys: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`
+- OpenAI document reading defaults:
+  - `OPENAI_DOCUMENT_AI_REQUIRES_CONSENT`
+  - `OPENAI_VISION_MODEL`
+  - `OPENAI_PDF_MODEL`
+  - `OPENAI_TRANSCRIPTION_MODEL`
+  - `OPENAI_DOCUMENT_MAX_FILE_MB`
+  - `OPENAI_DOCUMENT_TIMEOUT_SECONDS`
 - optional `TELEGRAM_WEBHOOK_SECRET`
 - optional Tailscale settings
 
 The local installer auto-generates secure values for a new local `.env`.
+
+## Local Extraction vs OpenAI Extraction
+
+Local by default:
+
+- CSV parsing and row import
+- text note parsing
+- image OCR with Tesseract
+- PDF embedded-text extraction with `pypdf`
+
+Optional OpenAI path when enabled in `/settings`:
+
+- low-confidence image extraction
+- scanned or low-text PDF extraction
+- ambiguous text note extraction
+- audio transcription and extraction
+- CSV column mapping suggestions only
+
+OpenAI is never allowed to:
+
+- post journal entries directly
+- invent totals
+- bypass review for uncertain accounting
+- replace the deterministic CSV row parser
 
 ## Backup
 
