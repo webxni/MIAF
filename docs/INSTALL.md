@@ -43,6 +43,14 @@ The installer does not:
 - print generated secrets
 - deploy production
 
+If you want to finish first-run onboarding from the terminal instead of the browser, run:
+
+```bash
+~/.miaf/bin/miaf setup
+```
+
+That command creates the owner account, saves the basic settings, and can configure Tailscale using the actual host port selected in `.env`.
+
 ## Manual Local Install
 
 Use this if you prefer working directly from the repo:
@@ -125,6 +133,7 @@ The curl installer installs `~/.miaf/bin/miaf`.
 Supported commands:
 
 ```bash
+~/.miaf/bin/miaf setup
 ~/.miaf/bin/miaf start
 ~/.miaf/bin/miaf stop
 ~/.miaf/bin/miaf restart

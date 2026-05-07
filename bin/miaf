@@ -13,12 +13,14 @@ fi
 
 COMPOSE=(docker compose -f "$REPO_DIR/compose.yaml")
 ENV_FILE="$REPO_DIR/.env"
+COOKIE_JAR="${MIAF_HOME}/.miaf-setup.cookies"
 
 usage() {
   cat <<EOF
 Usage: miaf <command>
 
 Commands:
+  setup            Run terminal onboarding and optional Tailscale setup
   start            Start the dev stack
   stop             Stop the dev stack
   restart          Restart running services
@@ -38,26 +40,220 @@ require_repo() {
   fi
 }
 
-require_repo
+have_cmd() {
+  command -v "$1" >/dev/null 2>&1
+}
+
+env_value() {
+  local key="$1"
+  if [ ! -f "$ENV_FILE" ]; then
+    return 0
+  fi
+  awk -F= -v key="$key" '$1==key{print substr($0, index($0, "=")+1)}' "$ENV_FILE" | tail -n 1
+}
+
+set_env_value() {
+  local key="$1"
+  local value="$2"
+  if grep -q "^${key}=" "$ENV_FILE"; then
+    sed -i.bak "s|^${key}=.*$|${key}=${value}|" "$ENV_FILE"
+    rm -f "${ENV_FILE}.bak"
+  else
+    printf '%s=%s\n' "$key" "$value" >>"$ENV_FILE"
+  fi
+}
+
+append_csv_env_value() {
+  local key="$1"
+  local value="$2"
+  local current
+  current="$(env_value "$key")"
+  if [ -z "${current:-}" ]; then
+    set_env_value "$key" "$value"
+    return 0
+  fi
+  case ",$current," in
+    *,"$value",*) return 0 ;;
+  esac
+  set_env_value "$key" "$current,$value"
+}
+
+json_quote() {
+  local value="${1:-}"
+  if have_cmd python3; then
+    python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$value"
+    return 0
+  fi
+  python -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$value"
+}
+
+prompt() {
+  local label="$1"
+  local default="${2:-}"
+  local reply
+  if [ -n "$default" ]; then
+    read -r -p "$label [$default]: " reply
+    printf '%s\n' "${reply:-$default}"
+  else
+    read -r -p "$label: " reply
+    printf '%s\n' "$reply"
+  fi
+}
+
+prompt_secret() {
+  local label="$1"
+  local reply
+  read -r -s -p "$label: " reply
+  printf '\n' >&2
+  printf '%s\n' "$reply"
+}
+
+confirm() {
+  local label="$1"
+  local default="${2:-N}"
+  local reply
+  read -r -p "$label [$default] " reply
+  reply="${reply:-$default}"
+  case "$reply" in
+    y|Y|yes|YES) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+base_url() {
+  local port
+  port="$(env_value "HTTP_PORT")"
+  if [ -n "${port:-}" ] && [ "$port" != "80" ]; then
+    printf 'http://localhost:%s\n' "$port"
+  else
+    printf 'http://localhost\n'
+  fi
+}
+
+api_request() {
+  local method="$1"
+  local path="$2"
+  local json_payload="${3:-}"
+  local url
+  url="$(base_url)$path"
+  if [ "$method" = "GET" ]; then
+    curl -fsS -b "$COOKIE_JAR" -c "$COOKIE_JAR" "$url"
+  else
+    curl -fsS -X "$method" -H "content-type: application/json" -b "$COOKIE_JAR" -c "$COOKIE_JAR" -d "$json_payload" "$url"
+  fi
+}
 
 run_smoke() {
-  local base_url="http://localhost"
-  local port
+  local url
+  url="$(base_url)"
+  curl -fsS "${url}/api/health" >/dev/null
+  curl -fsS "${url}/api/health/ready" >/dev/null
+  printf 'MIAF health checks passed at %s\n' "$url"
+}
 
-  if [ -f "$ENV_FILE" ]; then
-    port="$(awk -F= '$1=="HTTP_PORT"{print substr($0, index($0, "=")+1)}' "$ENV_FILE" | tail -n 1)"
-    if [ -n "${port:-}" ] && [ "$port" != "80" ]; then
-      base_url="http://localhost:$port"
+setup_cmd() {
+  local owner_name owner_email owner_password
+  local jurisdiction base_currency fiscal_year_start_month
+  local ai_provider ai_api_key enable_openai_docs
+  local http_port payload tailscale_payload target_url
+
+  http_port="$(env_value "HTTP_PORT")"
+  http_port="${http_port:-80}"
+
+  printf 'MIAF terminal setup\n'
+  printf 'App URL: %s\n' "$(base_url)"
+
+  owner_name="$(prompt "Owner name")"
+  owner_email="$(prompt "Owner email")"
+  while :; do
+    owner_password="$(prompt_secret "Owner password (minimum 12 characters)")"
+    if [ "${#owner_password}" -ge 12 ]; then
+      break
+    fi
+    printf 'Password must be at least 12 characters.\n' >&2
+  done
+
+  payload=$(printf '{"name":%s,"email":%s,"password":%s}' \
+    "$(json_quote "$owner_name")" \
+    "$(json_quote "$owner_email")" \
+    "$(json_quote "$owner_password")")
+  api_request "POST" "/api/auth/register-owner" "$payload" >/dev/null
+  printf 'Owner account created.\n'
+
+  jurisdiction="$(prompt "Jurisdiction" "US")"
+  base_currency="$(prompt "Base currency" "USD")"
+  fiscal_year_start_month="$(prompt "Fiscal year start month" "1")"
+  ai_provider="$(prompt "AI provider (heuristic/openai/anthropic/gemini)" "heuristic")"
+
+  ai_api_key=""
+  enable_openai_docs="false"
+  if [ "$ai_provider" != "heuristic" ] && confirm "Add the AI API key now?" "Y"; then
+    ai_api_key="$(prompt_secret "AI API key")"
+  fi
+  if [ "$ai_provider" = "openai" ] && confirm "Enable OpenAI document reading?" "N"; then
+    enable_openai_docs="true"
+  fi
+
+  if [ -n "$ai_api_key" ]; then
+    payload=$(printf '{"jurisdiction":%s,"base_currency":%s,"fiscal_year_start_month":%s,"ai_provider":%s,"ai_api_key":%s,"openai_document_ai_enabled":%s,"openai_document_ai_consent_granted":%s}' \
+      "$(json_quote "$jurisdiction")" \
+      "$(json_quote "$base_currency")" \
+      "$fiscal_year_start_month" \
+      "$(json_quote "$ai_provider")" \
+      "$(json_quote "$ai_api_key")" \
+      "$enable_openai_docs" \
+      "$enable_openai_docs")
+  else
+    payload=$(printf '{"jurisdiction":%s,"base_currency":%s,"fiscal_year_start_month":%s,"ai_provider":%s,"openai_document_ai_enabled":%s,"openai_document_ai_consent_granted":%s}' \
+      "$(json_quote "$jurisdiction")" \
+      "$(json_quote "$base_currency")" \
+      "$fiscal_year_start_month" \
+      "$(json_quote "$ai_provider")" \
+      "$enable_openai_docs" \
+      "$enable_openai_docs")
+  fi
+  api_request "PUT" "/api/settings" "$payload" >/dev/null
+  printf 'Base settings saved.\n'
+
+  if confirm "Configure Tailscale now?" "N"; then
+    append_csv_env_value "TAILSCALE_ALLOWED_PORTS" "$http_port"
+    "${COMPOSE[@]}" up -d api >/dev/null
+    target_url="http://127.0.0.1:${http_port}"
+    tailscale_payload=$(printf '{"tailscale_enabled":true,"tailscale_mode":"serve","tailscale_target_url":%s}' \
+      "$(json_quote "$target_url")")
+    api_request "POST" "/api/settings/tailscale" "$tailscale_payload" >/dev/null
+    printf 'Tailscale target saved as %s\n' "$target_url"
+
+    if have_cmd tailscale; then
+      if confirm "Run 'tailscale up' now on this host?" "N"; then
+        tailscale up
+      fi
+      if confirm "Run 'tailscale serve --bg ${target_url}' now on this host?" "N"; then
+        tailscale serve --bg "$target_url"
+      fi
+      printf 'Tailscale status:\n'
+      tailscale serve status || true
+      tailscale ip -4 || true
+    else
+      printf 'tailscale binary not found on this host. Install Tailscale first, then run:\n'
+      printf '  tailscale up\n'
+      printf '  tailscale serve --bg %s\n' "$target_url"
+      printf '  tailscale serve status\n'
     fi
   fi
 
-  curl -fsS "${base_url}/api/health" >/dev/null
-  curl -fsS "${base_url}/api/health/ready" >/dev/null
-  printf 'MIAF health checks passed at %s\n' "$base_url"
+  rm -f "$COOKIE_JAR"
+  printf '\nSetup complete.\n'
+  printf 'Open %s\n' "$(base_url)"
 }
+
+require_repo
 
 cmd="${1:-}"
 case "$cmd" in
+  setup)
+    setup_cmd
+    ;;
   start)
     "${COMPOSE[@]}" up -d
     ;;

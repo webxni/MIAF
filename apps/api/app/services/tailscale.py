@@ -57,6 +57,11 @@ def tailscale_binary() -> str | None:
     return found
 
 
+def default_tailscale_target() -> str:
+    port = os.getenv("HTTP_PORT", "80").strip() or "80"
+    return f"http://127.0.0.1:{port}"
+
+
 def validate_tailscale_target(target_url: str) -> tuple[bool, str]:
     """Return (is_valid, error_message). Only localhost targets on allowed ports."""
     settings = get_settings()
@@ -194,8 +199,9 @@ async def reset_tailscale_serve() -> TailscaleCommandResult:
     return result
 
 
-def manual_serve_instructions(target_url: str = "http://127.0.0.1:80") -> dict[str, str]:
+def manual_serve_instructions(target_url: str | None = None) -> dict[str, str]:
     """Return copy-pasteable manual Tailscale Serve commands for the user."""
+    target_url = target_url or default_tailscale_target()
     return {
         "install": "Install Tailscale: https://tailscale.com/download",
         "up": "sudo tailscale up",

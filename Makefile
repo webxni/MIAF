@@ -98,8 +98,8 @@ tailscale-status: ## Show Tailscale connection status (JSON)
 tailscale-ip: ## Print this machine's Tailscale IPv4 address
 	tailscale ip -4
 
-tailscale-serve: ## Start Tailscale Serve pointing at localhost:80 (private tailnet only)
-	sudo tailscale serve --bg http://127.0.0.1:80
+tailscale-serve: ## Start Tailscale Serve pointing at localhost:HTTP_PORT (private tailnet only)
+	port="$$(awk -F= '$$1=="HTTP_PORT"{print substr($$0, index($$0, "=")+1)}' .env 2>/dev/null | tail -n 1)"; port="$${port:-80}"; sudo tailscale serve --bg "http://127.0.0.1:$${port}"
 
 tailscale-serve-status: ## Show active Tailscale Serve configuration
 	tailscale serve status

@@ -53,6 +53,14 @@ Once the stack is up:
 8. Use `/agent` for guided bookkeeping, summaries, and draft actions.
 9. Use `/dashboard`, `/business/reports`, `/alerts`, and `/audit-log` for ongoing review.
 
+If you want to complete first-run setup from the terminal instead of the browser:
+
+```bash
+~/.miaf/bin/miaf setup
+```
+
+That flow creates the owner account, saves the basic settings, and can configure Tailscale against the actual host port chosen during install.
+
 ## Enable AI Document Reading
 
 1. Open `/settings`.
@@ -158,9 +166,9 @@ Production-only values in `.env.production.example` also include:
 
 MIAF supports private phone access through Tailscale. Use Tailscale Serve, not Funnel. The short version is:
 
-- Run MIAF locally on port `80`.
+- Run MIAF locally on the host port from `HTTP_PORT`.
 - Install Tailscale on the host machine.
-- Use `tailscale serve --bg http://127.0.0.1:80` or `make tailscale-serve`.
+- Use `tailscale serve --bg http://127.0.0.1:<HTTP_PORT>` or `~/.miaf/bin/miaf setup`.
 - Open the resulting `https://*.ts.net` URL from a device in the same tailnet.
 
 See [docs/TAILSCALE.md](./docs/TAILSCALE.md) for the full flow and troubleshooting.
@@ -183,6 +191,7 @@ make prod-down
 Local CLI wrapper from the curl installer:
 
 ```bash
+~/.miaf/bin/miaf setup
 ~/.miaf/bin/miaf start
 ~/.miaf/bin/miaf stop
 ~/.miaf/bin/miaf logs

@@ -100,6 +100,22 @@ set_env_value() {
   fi
 }
 
+append_csv_env_value() {
+  local file="$1"
+  local key="$2"
+  local value="$3"
+  local current
+  current="$(awk -F= -v key="$key" '$1==key{print substr($0, index($0, "=")+1)}' "$file" | tail -n 1)"
+  if [ -z "${current:-}" ]; then
+    set_env_value "$file" "$key" "$value"
+    return 0
+  fi
+  case ",$current," in
+    *,"$value",*) return 0 ;;
+  esac
+  set_env_value "$file" "$key" "$current,$value"
+}
+
 replace_if_matches() {
   local file="$1"
   local key="$2"
@@ -376,6 +392,7 @@ ensure_host_ports_available() {
       fail "host port $https_port is already in use. Edit $ENV_FILE and set HTTPS_PORT to a free port such as 8443, then rerun the installer."
     fi
   fi
+  append_csv_env_value "$ENV_FILE" "TAILSCALE_ALLOWED_PORTS" "$http_port"
   configure_urls
 }
 

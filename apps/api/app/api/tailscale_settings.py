@@ -32,7 +32,7 @@ _SETUP_INSTRUCTIONS = [
     "Step 2: Run: sudo tailscale up",
     "Step 3: Install Tailscale on your phone and sign in to the same tailnet.",
     "Step 4 (direct IP): Run: tailscale ip -4  →  open http://<tailscale-ip> on your phone.",
-    "Step 5 (Serve – recommended): Run: sudo tailscale serve --bg http://127.0.0.1:80",
+    f"Step 5 (Serve – recommended): Run: sudo tailscale serve --bg {ts_svc.default_tailscale_target()}",
     "Step 6 (Serve): Run: tailscale serve status  →  open the shown https://*.ts.net URL on your phone.",
     "Note: Tailscale Serve keeps access inside your private tailnet only. It is NOT public internet access.",
 ]
@@ -134,7 +134,7 @@ async def start_serve(
     ctx: RequestCtx,
 ) -> TailscaleLiveStatusOut:
     settings_row = await ts_db.get_or_create(db, tenant_id=me.tenant_id)
-    target = settings_row.tailscale_target_url or "http://127.0.0.1:80"
+    target = settings_row.tailscale_target_url or ts_svc.default_tailscale_target()
 
     result = await ts_svc.start_tailscale_serve(target)
     await write_audit(

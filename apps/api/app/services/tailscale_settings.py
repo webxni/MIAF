@@ -10,6 +10,7 @@ from app.models.tailscale import TailscaleSettings
 from app.models.base import utcnow
 from app.schemas.tailscale import TailscaleSettingsUpdate
 from app.services.audit import write_audit
+from app.services.tailscale import default_tailscale_target
 
 
 async def get_or_create(db: AsyncSession, *, tenant_id: uuid.UUID) -> TailscaleSettings:
@@ -19,7 +20,7 @@ async def get_or_create(db: AsyncSession, *, tenant_id: uuid.UUID) -> TailscaleS
         )
     ).scalar_one_or_none()
     if row is None:
-        row = TailscaleSettings(tenant_id=tenant_id)
+        row = TailscaleSettings(tenant_id=tenant_id, tailscale_target_url=default_tailscale_target())
         db.add(row)
         await db.flush()
     return row

@@ -6,11 +6,11 @@ Tailscale Serve shares MIAF only inside your private tailnet — **it is not Tai
 ## How it works
 
 ```
-Phone (Tailscale)  ──tailnet──►  Host machine  ──localhost──►  Caddy :80  ──►  MIAF
+Phone (Tailscale)  ──tailnet──►  Host machine  ──localhost──►  Caddy :<HTTP_PORT>  ──►  MIAF
 ```
 
 1. Tailscale Serve listens on the host at a `https://<hostname>.ts.net` URL.
-2. It forwards requests to `http://127.0.0.1:80` (Caddy), which reverse-proxies to the API and web containers.
+2. It forwards requests to `http://127.0.0.1:<HTTP_PORT>` (Caddy), which reverse-proxies to the API and web containers.
 3. Only devices authenticated in the same Tailscale account (tailnet) can reach that URL.
 
 ## Prerequisites
@@ -28,9 +28,9 @@ curl -fsSL https://tailscale.com/install.sh | sh
 # 2. Connect the host to your tailnet
 sudo tailscale up
 
-# 3. Start Serve (points at Caddy on port 80)
+# 3. Start Serve (points at Caddy on the host HTTP port)
 make tailscale-serve
-# equivalent to: sudo tailscale serve --bg http://127.0.0.1:80
+# equivalent to: sudo tailscale serve --bg http://127.0.0.1:<HTTP_PORT>
 
 # 4. Check the URL
 make tailscale-serve-status
@@ -76,14 +76,14 @@ Then set `TAILSCALE_BINARY_PATH=/usr/bin/tailscale` in `.env`.
 | `TAILSCALE_COMMAND_TIMEOUT` | `10` | Seconds before a tailscale subprocess is killed |
 | `TAILSCALE_ALLOWED_PORTS` | `80` | Comma-separated list of local ports allowed as Serve targets |
 
-Add additional allowed ports (e.g. `443,8080`) via `TAILSCALE_ALLOWED_PORTS=80,443,8080` in `.env`.
+If your install uses a non-default `HTTP_PORT`, include it in `TAILSCALE_ALLOWED_PORTS`. The installer and `miaf setup` now do this automatically.
 
 ## Makefile helpers
 
 ```bash
 make tailscale-status        # tailscale status --json | python3 -m json.tool
 make tailscale-ip            # tailscale ip -4
-make tailscale-serve         # sudo tailscale serve --bg http://127.0.0.1:80
+make tailscale-serve         # sudo tailscale serve --bg http://127.0.0.1:<HTTP_PORT>
 make tailscale-serve-status  # tailscale serve status
 make tailscale-serve-reset   # sudo tailscale serve reset
 ```
@@ -107,9 +107,9 @@ If you don't want Serve, you can open MIAF directly via the Tailscale IP:
 tailscale ip -4   # e.g. 100.64.0.5
 ```
 
-Then on your phone, open `http://100.64.0.5` (port 80). This works as long as:
+Then on your phone, open `http://100.64.0.5:<HTTP_PORT>`. This works as long as:
 
-- Caddy is listening on port 80 (it is by default).
+- Caddy is listening on your configured `HTTP_PORT`.
 - Your tailnet ACLs allow the connection (they do by default for new tailnets).
 
 Serve is recommended because it gives you an `https://` URL with a stable hostname.
