@@ -45,6 +45,7 @@ The current repo ships a working monorepo with:
 - Agent chat in `/agent`.
 - Dedicated memory management in `/memory`.
 - Settings page in `/settings` for accounting defaults and AI provider credentials.
+- Team invite management in `/settings` for owner/admin users.
 - Document upload and review queue in `/documents`.
 - Telegram link and message management in `/telegram`.
 - Built-in skill packs for accounting, personal finance, and Python-based finance calculations.
@@ -57,7 +58,7 @@ These areas are present only partially or are explicitly not finished yet:
 
 - PDF OCR for receipt parsing is not supported yet. PDF receipts upload, but parsing can fall back to a review-only path.
 - Email alerts are not implemented yet. Current alerting is in-product, with Telegram integration also present in the backend.
-- Multi-user invitation and broader tenancy workflows are not complete. The current product is effectively single-owner oriented.
+- Broader multi-tenant collaboration is still limited. Team invites exist, but the product is still optimized around an owner-led workspace.
 - Skill proposal review is not implemented yet.
 - Some agent tools are intentionally registered as reserved or not implemented for later phases, even if the tool names already exist in code.
 - Production hardening still depends on your own operations choices for off-host backups, secret rotation, and infrastructure monitoring.
@@ -104,6 +105,26 @@ Important behavior:
 - Provider API keys are stored server-side as encrypted ciphertext.
 - The UI only receives a last-four-character hint for an already stored key.
 - If no external key is configured, `/agent` can still fall back to deterministic heuristic behavior for supported prompts.
+
+### 2.1 Manage team invites in `/settings`
+
+Owner and admin users can invite teammates from the `Team invites` section in `/settings`.
+
+- Create an invite by entering the teammate email and role.
+- Copy the one-time `/accept-invite` link immediately after creation and send it through your own secure channel.
+- Revoke any pending invite before it is accepted.
+
+Invite acceptance flow:
+
+- The invited user opens `/accept-invite?token=...`.
+- They enter their name and a password with at least 12 characters.
+- MIAF creates the user, grants workspace memberships, creates a session, and redirects them to `/dashboard`.
+
+Role notes:
+
+- `admin` can manage most workspace operations.
+- `accountant` can work on accounting flows without owner-level administration.
+- `viewer` has read-oriented access.
 
 ### 3. Use `/agent`
 

@@ -94,7 +94,7 @@ async def test_accept_revoked_invite_raises(seeded, db):
     await revoke_invite(db, invite_id=invite.id, tenant_id=tenant_id)
 
     with pytest.raises(AuthError) as exc:
-        await accept_invite(db, token=invite.token, name="X", password="pass1234")
+        await accept_invite(db, token=invite.token, name="X", password="pass12345678")
     assert exc.value.code == "invite_revoked"
 
 
@@ -108,7 +108,7 @@ async def test_accept_expired_invite_raises(seeded, db):
     await db.flush()
 
     with pytest.raises(AuthError) as exc:
-        await accept_invite(db, token=invite.token, name="X", password="pass1234")
+        await accept_invite(db, token=invite.token, name="X", password="pass12345678")
     assert exc.value.code == "invite_expired"
 
 
@@ -162,20 +162,18 @@ async def test_create_and_accept_invite_via_http(client, seeded, db):
     r = await client.post("/auth/invites", json={"email": "newmember@example.com", "role": "viewer"})
     assert r.status_code == 201
     data = r.json()
-    token = data["id"]  # We'll fetch the real token from DB since the API doesn't expose it
+    token = data["token"]
     assert data["email"] == "newmember@example.com"
+    assert token
 
     audit = (
         await db.execute(select(AuditLog).where(AuditLog.action == "create_invite"))
     ).scalar_one_or_none()
     assert audit is not None
 
-    # Fetch actual token from DB
-    invite = (await db.execute(select(InviteToken).where(InviteToken.email == "newmember@example.com"))).scalar_one()
-
     # Accept through HTTP
     r2 = await client.post("/auth/accept-invite", json={
-        "token": invite.token,
+        "token": token,
         "name": "New Member",
         "password": "secure-password-123",
     })
@@ -186,6 +184,20 @@ async def test_create_and_accept_invite_via_http(client, seeded, db):
         await db.execute(select(AuditLog).where(AuditLog.action == "accept_invite"))
     ).scalar_one_or_none()
     assert accept_audit is not None
+
+
+async def test_accept_invite_http_requires_12_char_password(client, seeded, db):
+    await _login(client, seeded)
+
+    r = await client.post("/auth/invites", json={"email": "shortpw@example.com", "role": "viewer"})
+    assert r.status_code == 201
+    token = r.json()["token"]
+
+    r2 = await client.post(
+        "/auth/accept-invite",
+        json={"token": token, "name": "Short Password", "password": "too-short"},
+    )
+    assert r2.status_code == 422
 
 
 async def test_list_invites_via_http(client, seeded):

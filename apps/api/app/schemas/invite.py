@@ -16,7 +16,7 @@ class InviteCreate(BaseModel):
 class AcceptInviteRequest(BaseModel):
     token: str
     name: str = Field(min_length=1, max_length=200)
-    password: str = Field(min_length=8)
+    password: str = Field(min_length=12, max_length=1000)
 
 
 class InviteOut(BaseModel):
@@ -29,3 +29,7 @@ class InviteOut(BaseModel):
     accepted_at: datetime | None
     is_revoked: bool
     created_at: datetime
+
+
+class InviteCreateOut(InviteOut):
+    token: str

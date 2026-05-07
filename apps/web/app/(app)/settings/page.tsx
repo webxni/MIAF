@@ -4,16 +4,21 @@ import { FormEvent, useEffect, useState } from "react";
 
 import { SectionCard } from "../../_components/cards";
 import {
+  ApiRequestError,
   changePassword,
   checkTailscaleStatus,
+  createInvite,
   getSettings,
   getTailscaleSettings,
+  listInvites,
   me,
   resetTailscaleServe,
   revokeAllSessions,
+  revokeInvite,
   startTailscaleServe,
   updateSettings,
   type AIProvider,
+  type Invite,
   type TailscaleLiveStatus,
   type User,
   type UserSettings,
@@ -26,6 +31,33 @@ const PROVIDERS: Array<{ value: AIProvider; label: string }> = [
   { value: "openai", label: "OpenAI" },
   { value: "gemini", label: "Gemini" },
 ];
+
+const INVITE_ROLES = [
+  { value: "admin", label: "Admin" },
+  { value: "accountant", label: "Accountant" },
+  { value: "viewer", label: "Viewer" },
+] as const;
+
+function formatInviteDate(value: string): string {
+  return new Date(value).toLocaleString();
+}
+
+function isPendingInvite(invite: Invite): boolean {
+  return !invite.accepted_at && !invite.is_revoked && new Date(invite.expires_at).getTime() > Date.now();
+}
+
+function inviteErrorMessage(error: ApiRequestError): string {
+  if (error.status === 403 || error.code === "role_forbidden") {
+    return "Insufficient permission. Only owners and admins can manage team invites.";
+  }
+  if (error.code === "invite_already_member") {
+    return "That email is already part of this workspace.";
+  }
+  if (error.code === "invite_already_accepted") {
+    return "That invite has already been accepted.";
+  }
+  return error.message;
+}
 
 export default function SettingsPage() {
   const [user, setUser] = useState<User | null>(null);
@@ -53,6 +85,19 @@ export default function SettingsPage() {
   const [pwError, setPwError] = useState<string | null>(null);
   const [pwSaving, setPwSaving] = useState(false);
 
+  const [invites, setInvites] = useState<Invite[]>([]);
+  const [invitesLoading, setInvitesLoading] = useState(true);
+  const [invitesError, setInvitesError] = useState<string | null>(null);
+  const [invitePermissionDenied, setInvitePermissionDenied] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteRole, setInviteRole] = useState<(typeof INVITE_ROLES)[number]["value"]>("viewer");
+  const [inviteSaving, setInviteSaving] = useState(false);
+  const [inviteMessage, setInviteMessage] = useState<string | null>(null);
+  const [inviteActionError, setInviteActionError] = useState<string | null>(null);
+  const [latestInviteLink, setLatestInviteLink] = useState<string | null>(null);
+  const [copiedInviteLink, setCopiedInviteLink] = useState(false);
+  const [revokingInviteId, setRevokingInviteId] = useState<string | null>(null);
+
   useEffect(() => {
     let active = true;
     Promise.all([me(), getSettings()])
@@ -77,6 +122,37 @@ export default function SettingsPage() {
       .then((status) => { if (active) setTailscale(status); })
       .catch(() => { /* silently ignore if endpoint not yet accessible */ });
     return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    loadInvites().catch(() => {
+      // Errors are handled in loadInvites state.
+    });
+    return () => {
+      active = false;
+    };
+
+    async function loadInvites() {
+      setInvitesLoading(true);
+      setInvitesError(null);
+      setInvitePermissionDenied(false);
+      try {
+        const rows = await listInvites();
+        if (!active) return;
+        setInvites(rows);
+      } catch (err) {
+        if (!active) return;
+        if (err instanceof ApiRequestError && (err.status === 403 || err.code === "role_forbidden")) {
+          setInvitePermissionDenied(true);
+          setInvites([]);
+        } else {
+          setInvitesError(err instanceof Error ? err.message : "Failed to load invites");
+        }
+      } finally {
+        if (active) setInvitesLoading(false);
+      }
+    }
   }, []);
 
   async function handleTsAction(action: () => Promise<TailscaleLiveStatus>) {
@@ -120,6 +196,84 @@ export default function SettingsPage() {
       window.location.replace("/login");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to revoke sessions.");
+    }
+  }
+
+  async function refreshInvites() {
+    setInvitesLoading(true);
+    setInvitesError(null);
+    try {
+      const rows = await listInvites();
+      setInvites(rows);
+      setInvitePermissionDenied(false);
+    } catch (err) {
+      if (err instanceof ApiRequestError && (err.status === 403 || err.code === "role_forbidden")) {
+        setInvitePermissionDenied(true);
+        setInvites([]);
+      } else {
+        setInvitesError(err instanceof Error ? err.message : "Failed to load invites");
+      }
+    } finally {
+      setInvitesLoading(false);
+    }
+  }
+
+  async function handleInviteSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setInviteSaving(true);
+    setInviteMessage(null);
+    setInviteActionError(null);
+    setCopiedInviteLink(false);
+    try {
+      const created = await createInvite(inviteEmail.trim(), inviteRole);
+      const inviteLink =
+        typeof window === "undefined"
+          ? `/accept-invite?token=${encodeURIComponent(created.token)}`
+          : `${window.location.origin}/accept-invite?token=${encodeURIComponent(created.token)}`;
+      setLatestInviteLink(inviteLink);
+      setInviteMessage("Invite created. Copy the link now and share it securely.");
+      setInviteEmail("");
+      await refreshInvites();
+    } catch (err) {
+      if (err instanceof ApiRequestError) {
+        setInviteActionError(inviteErrorMessage(err));
+      } else {
+        setInviteActionError(err instanceof Error ? err.message : "Failed to create invite.");
+      }
+    } finally {
+      setInviteSaving(false);
+    }
+  }
+
+  async function handleCopyInviteLink() {
+    if (!latestInviteLink) return;
+    try {
+      await navigator.clipboard.writeText(latestInviteLink);
+      setCopiedInviteLink(true);
+      setInviteMessage("Invite created. Link copied to clipboard.");
+    } catch {
+      setInviteActionError("Invite created, but copying failed. Copy the link manually.");
+    }
+  }
+
+  async function handleRevokeInvite(inviteId: string) {
+    setRevokingInviteId(inviteId);
+    setInviteActionError(null);
+    setInviteMessage(null);
+    try {
+      await revokeInvite(inviteId);
+      setInviteMessage("Invite revoked.");
+      setLatestInviteLink(null);
+      setCopiedInviteLink(false);
+      await refreshInvites();
+    } catch (err) {
+      if (err instanceof ApiRequestError) {
+        setInviteActionError(inviteErrorMessage(err));
+      } else {
+        setInviteActionError(err instanceof Error ? err.message : "Failed to revoke invite.");
+      }
+    } finally {
+      setRevokingInviteId(null);
     }
   }
 
@@ -172,6 +326,7 @@ export default function SettingsPage() {
   }
 
   const keyHint = settings?.ai_api_key_hint ?? null;
+  const pendingInvites = invites.filter(isPendingInvite);
 
   return (
     <div className="space-y-6">
@@ -361,6 +516,149 @@ export default function SettingsPage() {
           </button>
         </div>
       </form>
+
+      <SectionCard
+        title="Team invites"
+        description="Owners and admins can invite teammates into this workspace and revoke pending invites."
+      >
+        {inviteMessage ? (
+          <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+            {inviteMessage}
+          </div>
+        ) : null}
+        {inviteActionError ? (
+          <div className="mb-4 rounded-xl border border-[var(--danger-line)] bg-[var(--danger-bg)] px-4 py-3 text-sm text-[var(--danger-ink)]">
+            {inviteActionError}
+          </div>
+        ) : null}
+        {invitesError ? (
+          <div className="mb-4 rounded-xl border border-[var(--danger-line)] bg-[var(--danger-bg)] px-4 py-3 text-sm text-[var(--danger-ink)]">
+            Failed to load invites. {invitesError}
+          </div>
+        ) : null}
+        {invitePermissionDenied ? (
+          <div className="rounded-xl border border-[var(--danger-line)] bg-[var(--danger-bg)] px-4 py-3 text-sm text-[var(--danger-ink)]">
+            Insufficient permission. Only owners and admins can manage team invites.
+          </div>
+        ) : (
+          <div className="space-y-5">
+            <form className="grid gap-4 md:grid-cols-[minmax(0,1.5fr)_12rem_auto]" onSubmit={handleInviteSubmit}>
+              <label className="text-sm font-medium">
+                Invite email
+                <input
+                  className="mt-2 w-full rounded-xl border border-[var(--line)] bg-[var(--surface)] px-3 py-3 text-sm"
+                  type="email"
+                  value={inviteEmail}
+                  onChange={(event) => setInviteEmail(event.target.value)}
+                  placeholder="teammate@example.com"
+                  disabled={inviteSaving}
+                  required
+                />
+              </label>
+              <label className="text-sm font-medium">
+                Role
+                <select
+                  className="mt-2 w-full rounded-xl border border-[var(--line)] bg-[var(--surface)] px-3 py-3 text-sm"
+                  value={inviteRole}
+                  onChange={(event) => setInviteRole(event.target.value as (typeof INVITE_ROLES)[number]["value"])}
+                  disabled={inviteSaving}
+                >
+                  {INVITE_ROLES.map((role) => (
+                    <option key={role.value} value={role.value}>
+                      {role.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="flex items-end">
+                <button
+                  type="submit"
+                  disabled={inviteSaving}
+                  className="w-full rounded-xl bg-[var(--accent)] px-4 py-3 text-sm font-semibold text-[var(--accent-ink)] transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {inviteSaving ? "Creating…" : "Create invite"}
+                </button>
+              </div>
+            </form>
+
+            {latestInviteLink ? (
+              <div className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] px-4 py-4">
+                <p className="text-sm font-medium">One-time invite link</p>
+                <p className="mt-1 text-sm text-[var(--muted)]">
+                  Copy and send this link now. It is only returned when the invite is created.
+                </p>
+                <div className="mt-3 flex flex-col gap-3 md:flex-row">
+                  <input
+                    className="w-full rounded-xl border border-[var(--line)] bg-[var(--panel)] px-3 py-3 text-sm"
+                    value={latestInviteLink}
+                    readOnly
+                  />
+                  <button
+                    type="button"
+                    onClick={handleCopyInviteLink}
+                    className="rounded-xl border border-[var(--line)] px-4 py-3 text-sm text-[var(--ink)] transition hover:bg-[var(--panel)]"
+                  >
+                    {copiedInviteLink ? "Copied" : "Copy link"}
+                  </button>
+                </div>
+              </div>
+            ) : null}
+
+            <div>
+              <div className="mb-3 flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-sm font-medium">Pending invites</p>
+                  <p className="text-sm text-[var(--muted)]">
+                    {pendingInvites.length === 0
+                      ? "No pending invites."
+                      : `${pendingInvites.length} pending invite${pendingInvites.length === 1 ? "" : "s"}.`}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={refreshInvites}
+                  disabled={invitesLoading}
+                  className="rounded-xl border border-[var(--line)] px-4 py-2 text-sm text-[var(--muted)] transition hover:bg-[var(--surface)] hover:text-[var(--ink)] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Refresh
+                </button>
+              </div>
+
+              {invitesLoading ? (
+                <p className="text-sm text-[var(--muted)]">Loading invites…</p>
+              ) : pendingInvites.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-[var(--line)] px-4 py-6 text-sm text-[var(--muted)]">
+                  No pending invites to review.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {pendingInvites.map((invite) => (
+                    <div
+                      key={invite.id}
+                      className="flex flex-col gap-3 rounded-2xl border border-[var(--line)] bg-[var(--surface)] px-4 py-4 md:flex-row md:items-center md:justify-between"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium">{invite.email}</p>
+                        <p className="mt-1 text-sm text-[var(--muted)]">
+                          Role: {invite.role} · Expires {formatInviteDate(invite.expires_at)}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleRevokeInvite(invite.id)}
+                        disabled={revokingInviteId === invite.id}
+                        className="rounded-xl border border-[var(--danger-line)] px-4 py-2 text-sm text-[var(--danger-ink)] transition hover:bg-[var(--danger-bg)] disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {revokingInviteId === invite.id ? "Revoking…" : "Revoke"}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </SectionCard>
 
       <SectionCard
         title="Tailscale private access"

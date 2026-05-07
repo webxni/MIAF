@@ -12,7 +12,7 @@ from app.core.brand import SHORT_NAME
 from app.errors import AuthError, ConflictError
 from app.models import EntityMode, Tenant, User
 from app.schemas.auth import LoginRequest, PasswordChangeRequest, RegisterOwnerRequest, UserOut
-from app.schemas.invite import AcceptInviteRequest, InviteCreate, InviteOut
+from app.schemas.invite import AcceptInviteRequest, InviteCreate, InviteCreateOut, InviteOut
 from app.services.audit import write_audit
 from app.services.auth import (
     authenticate_user,
@@ -257,13 +257,13 @@ async def revoke_all_my_sessions(
 
 # ── Team invites ──────────────────────────────────────────────────────────────
 
-@router.post("/invites", response_model=InviteOut, status_code=status.HTTP_201_CREATED)
+@router.post("/invites", response_model=InviteCreateOut, status_code=status.HTTP_201_CREATED)
 async def create_invite_endpoint(
     payload: InviteCreate,
     db: DB,
     me: Annotated[CurrentUser, Depends(require_tenant_admin_or_owner)],
     ctx: RequestCtx,
-) -> InviteOut:
+) -> InviteCreateOut:
     invite = await create_invite(
         db,
         tenant_id=me.tenant_id,
@@ -283,7 +283,7 @@ async def create_invite_endpoint(
         ip=ctx.ip,
         user_agent=ctx.user_agent,
     )
-    return InviteOut.model_validate(invite)
+    return InviteCreateOut.model_validate(invite)
 
 
 @router.get("/invites", response_model=list[InviteOut])

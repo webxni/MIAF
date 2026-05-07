@@ -316,6 +316,13 @@ export async function registerOwner(name: string, email: string, password: strin
   });
 }
 
+export async function acceptInvite(token: string, name: string, password: string): Promise<User> {
+  return apiFetch<User>("/auth/accept-invite", {
+    method: "POST",
+    body: JSON.stringify({ token, name, password }),
+  });
+}
+
 export async function logout(): Promise<void> {
   await apiFetch<void>("/auth/logout", { method: "POST" });
 }
@@ -1087,4 +1094,35 @@ export async function resetTailscaleServe(): Promise<TailscaleLiveStatus> {
     method: "POST",
     body: JSON.stringify({}),
   });
+}
+
+// ── Team invites ──────────────────────────────────────────────────────────────
+
+export type Invite = {
+  id: string;
+  email: string;
+  role: string;
+  expires_at: string;
+  accepted_at: string | null;
+  is_revoked: boolean;
+  created_at: string;
+};
+
+export type InviteCreateResult = Invite & {
+  token: string;
+};
+
+export async function listInvites(): Promise<Invite[]> {
+  return apiFetch<Invite[]>("/auth/invites");
+}
+
+export async function createInvite(email: string, role: string): Promise<InviteCreateResult> {
+  return apiFetch<InviteCreateResult>("/auth/invites", {
+    method: "POST",
+    body: JSON.stringify({ email, role }),
+  });
+}
+
+export async function revokeInvite(inviteId: string): Promise<void> {
+  await apiFetch<void>(`/auth/invites/${inviteId}`, { method: "DELETE" });
 }
