@@ -410,6 +410,7 @@ make env
 $EDITOR .env
 make build
 make up
+make ps
 make migrate
 make smoke
 ```
@@ -420,9 +421,16 @@ Then open:
 - API through Caddy: `http://localhost/api`
 - MinIO console in dev: `http://127.0.0.1:9001`
 
+First-run user flow:
+
+- Visit `http://localhost/onboarding`
+- Create the owner account
+- Continue into `/dashboard`
+- Open `/settings` to save jurisdiction, currency, fiscal year, and AI provider preferences
+
 Notes:
 
-- `make up` starts containers, but you should still run `make migrate` on a fresh database.
+- `make up` starts containers, but migrations are still manual today, so run `make migrate` on every fresh database and after pulling schema changes.
 - `make seed` is available, but the current seed command is driven by backend seed configuration and is not the main first-user path for normal app setup.
 - The intended real first-run flow for users is `/onboarding`.
 
@@ -540,7 +548,7 @@ Operationally, you should still copy backups off-host if you care about recovery
 
 - CSV imports create draft journal entries first.
 - Open `/documents` and review the pending drafts.
-- Approve drafts to post them, or decline them to remove them.
+- Open the linked draft entry and post it after review; CSV imports do not auto-post.
 
 ### Receipt upload worked but parsing did not
 

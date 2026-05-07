@@ -117,7 +117,8 @@ CSV imports do not post ledger entries automatically.
 Current behavior:
 
 - store the original PDF
-- attempt safe embedded-text extraction using a printable-text fallback
+- attempt extraction with `pypdf` first
+- fall back to safe printable-text scraping if structured extraction is weak
 - normalize any extracted text into a structured item
 - if no useful text is available, keep the document in review status
 

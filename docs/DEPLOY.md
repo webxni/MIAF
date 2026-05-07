@@ -1,6 +1,6 @@
 # MIAF — Production deployment
 
-Target: single VM (1 vCPU / 2 GB RAM minimum), single user, single tenant, Docker + Docker Compose v2, real domain pointed at the VM.
+Target: single VM (1 vCPU / 2 GB RAM minimum), owner-led single workspace, Docker + Docker Compose v2, real domain pointed at the VM.
 
 Internal infrastructure names such as `miaf_app`, `/opt/miaf`, and `miaf.example.com` remain in this document where they match existing deployment defaults.
 
@@ -121,7 +121,7 @@ If the update adds tables, sequences, or other new schema objects the app role n
 
 ## 10. Limitations to know
 
-- Single user / single tenant. There is no invitation flow yet.
+- The product is still optimized around an owner-led workspace. Team invites exist, but broader multi-tenant collaboration is still limited.
 - Postgres, MinIO, and backups all live on the VM's disk. There is no built-in off-host backup yet, so the VM disk is still a single point of failure.
 - Stored provider API keys are encrypted from `SECRET_KEY`. If you rotate `SECRET_KEY`, existing stored API keys become unreadable and must be re-entered in `/settings`.
 
