@@ -48,7 +48,7 @@ export default function LoginPage() {
           <p className="text-xs uppercase tracking-[0.35em] text-[var(--hero-accent)]">
             {brand.displayName}
           </p>
-          <h1 className="mt-4 max-w-xl font-serif text-5xl leading-tight">
+          <h1 className="mt-4 max-w-xl font-serif text-5xl leading-tight text-[var(--hero-ink)]">
             {brand.agentIntro}
           </h1>
           <p className="mt-5 max-w-lg text-base text-[var(--hero-copy)]">
@@ -59,26 +59,26 @@ export default function LoginPage() {
           </p>
         </div>
         <div className="grid gap-4 md:grid-cols-3">
-          <div className="rounded-2xl bg-white/8 p-4">
+          <div className="rounded-2xl border border-white/10 bg-white/12 p-4">
             <p className="text-xs uppercase tracking-[0.2em] text-[var(--hero-accent)]">Personal</p>
-            <p className="mt-2 text-sm text-[var(--hero-copy)]">Budget, goals, debt, net worth, savings rate.</p>
+            <p className="mt-2 text-sm text-[var(--hero-ink)]/90">Budget, goals, debt, net worth, savings rate.</p>
           </div>
-          <div className="rounded-2xl bg-white/8 p-4">
+          <div className="rounded-2xl border border-white/10 bg-white/12 p-4">
             <p className="text-xs uppercase tracking-[0.2em] text-[var(--hero-accent)]">Business</p>
-            <p className="mt-2 text-sm text-[var(--hero-copy)]">AR/AP, statements, cash flow, closing checklist.</p>
+            <p className="mt-2 text-sm text-[var(--hero-ink)]/90">AR/AP, statements, cash flow, closing checklist.</p>
           </div>
-          <div className="rounded-2xl bg-white/8 p-4">
+          <div className="rounded-2xl border border-white/10 bg-white/12 p-4">
             <p className="text-xs uppercase tracking-[0.2em] text-[var(--hero-accent)]">Documents</p>
-            <p className="mt-2 text-sm text-[var(--hero-copy)]">Receipt ingestion, CSV import, review queue.</p>
+            <p className="mt-2 text-sm text-[var(--hero-ink)]/90">Receipt ingestion, CSV import, review queue.</p>
           </div>
         </div>
       </section>
 
       <section className="flex items-center justify-center p-6">
-        <form onSubmit={handleSubmit} className="w-full max-w-md rounded-[2rem] border border-[var(--line)] bg-[var(--panel)] p-8 shadow-[0_24px_100px_rgba(17,24,39,0.12)]">
+        <form onSubmit={handleSubmit} className="w-full max-w-md rounded-[2rem] border border-[var(--line)] bg-[var(--panel)] p-8 text-[var(--ink)] shadow-[0_24px_100px_rgba(17,24,39,0.12)]">
           <div>
             <p className="text-xs uppercase tracking-[0.3em] text-[var(--accent)]">Login</p>
-            <h2 className="mt-3 text-3xl font-semibold tracking-tight">Open the workspace</h2>
+            <h2 className="mt-3 text-3xl font-semibold tracking-tight text-[var(--ink)]">Open the workspace</h2>
             <p className="mt-2 text-sm text-[var(--muted)]">
               Seeded dev credentials are prefilled when the demo seed is enabled.
             </p>
@@ -90,20 +90,20 @@ export default function LoginPage() {
             </div>
           ) : null}
 
-          <label className="mt-6 block text-sm font-medium">
+          <label className="mt-6 block text-sm font-medium text-[var(--ink)]">
             Email
             <input
-              className="mt-2 w-full rounded-xl border border-[var(--line)] bg-[var(--surface)] px-3 py-3"
+              className="mt-2 w-full rounded-xl border border-[var(--line)] bg-[var(--surface)] px-3 py-3 text-[var(--ink)] placeholder:text-[var(--muted)]"
               value={email}
               onChange={(event) => setEmail(event.target.value)}
               autoComplete="email"
             />
           </label>
 
-          <label className="mt-4 block text-sm font-medium">
+          <label className="mt-4 block text-sm font-medium text-[var(--ink)]">
             Password
             <input
-              className="mt-2 w-full rounded-xl border border-[var(--line)] bg-[var(--surface)] px-3 py-3"
+              className="mt-2 w-full rounded-xl border border-[var(--line)] bg-[var(--surface)] px-3 py-3 text-[var(--ink)] placeholder:text-[var(--muted)]"
               type="password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}

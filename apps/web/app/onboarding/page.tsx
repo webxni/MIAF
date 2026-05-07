@@ -41,7 +41,7 @@ export default function OnboardingPage() {
           <p className="text-xs uppercase tracking-[0.35em] text-[var(--hero-accent)]">
             {brand.displayName}
           </p>
-          <h1 className="mt-4 max-w-xl font-serif text-5xl leading-tight">
+          <h1 className="mt-4 max-w-xl font-serif text-5xl leading-tight text-[var(--hero-ink)]">
             {brand.agentIntro}
           </h1>
           <p className="mt-5 max-w-lg text-base text-[var(--hero-copy)]">
@@ -52,19 +52,19 @@ export default function OnboardingPage() {
           </p>
         </div>
         <div className="grid gap-4 md:grid-cols-3">
-          <div className="rounded-2xl bg-white/8 p-4">
+          <div className="rounded-2xl border border-white/10 bg-white/12 p-4">
             <p className="text-xs uppercase tracking-[0.2em] text-[var(--hero-accent)]">Tenant</p>
-            <p className="mt-2 text-sm text-[var(--hero-copy)]">
+            <p className="mt-2 text-sm text-[var(--hero-ink)]/90">
               Un nuevo espacio de trabajo de {brand.shortName} con propiedad de datos aislada.
             </p>
           </div>
-          <div className="rounded-2xl bg-white/8 p-4">
+          <div className="rounded-2xl border border-white/10 bg-white/12 p-4">
             <p className="text-xs uppercase tracking-[0.2em] text-[var(--hero-accent)]">Entities</p>
-            <p className="mt-2 text-sm text-[var(--hero-copy)]">One personal entity and one business entity, both owned by you.</p>
+            <p className="mt-2 text-sm text-[var(--hero-ink)]/90">One personal entity and one business entity, both owned by you.</p>
           </div>
-          <div className="rounded-2xl bg-white/8 p-4">
+          <div className="rounded-2xl border border-white/10 bg-white/12 p-4">
             <p className="text-xs uppercase tracking-[0.2em] text-[var(--hero-accent)]">Audit</p>
-            <p className="mt-2 text-sm text-[var(--hero-copy)]">Registration is session-backed and logged from the first action.</p>
+            <p className="mt-2 text-sm text-[var(--hero-ink)]/90">Registration is session-backed and logged from the first action.</p>
           </div>
         </div>
       </section>
@@ -72,20 +72,20 @@ export default function OnboardingPage() {
       <section className="flex items-center justify-center p-6">
         <form
           onSubmit={handleSubmit}
-          className="w-full max-w-md rounded-[2rem] border border-[var(--line)] bg-[var(--panel)] p-8 shadow-[0_24px_100px_rgba(17,24,39,0.12)]"
+          className="w-full max-w-md rounded-[2rem] border border-[var(--line)] bg-[var(--panel)] p-8 text-[var(--ink)] shadow-[0_24px_100px_rgba(17,24,39,0.12)]"
         >
           <div>
             <p className="text-xs uppercase tracking-[0.3em] text-[var(--accent)]">Onboarding</p>
-            <h2 className="mt-3 text-3xl font-semibold tracking-tight">Create the owner account</h2>
+            <h2 className="mt-3 text-3xl font-semibold tracking-tight text-[var(--ink)]">Create the owner account</h2>
             <p className="mt-2 text-sm text-[var(--muted)]">
               Use a password with at least 12 characters. This endpoint is only available before the first user exists.
             </p>
           </div>
 
-          <label className="mt-6 block text-sm font-medium">
+          <label className="mt-6 block text-sm font-medium text-[var(--ink)]">
             Name
             <input
-              className="mt-2 w-full rounded-xl border border-[var(--line)] bg-[var(--surface)] px-3 py-3"
+              className="mt-2 w-full rounded-xl border border-[var(--line)] bg-[var(--surface)] px-3 py-3 text-[var(--ink)] placeholder:text-[var(--muted)]"
               value={name}
               onChange={(event) => setName(event.target.value)}
               autoComplete="name"
@@ -94,10 +94,10 @@ export default function OnboardingPage() {
             />
           </label>
 
-          <label className="mt-4 block text-sm font-medium">
+          <label className="mt-4 block text-sm font-medium text-[var(--ink)]">
             Email
             <input
-              className="mt-2 w-full rounded-xl border border-[var(--line)] bg-[var(--surface)] px-3 py-3"
+              className="mt-2 w-full rounded-xl border border-[var(--line)] bg-[var(--surface)] px-3 py-3 text-[var(--ink)] placeholder:text-[var(--muted)]"
               value={email}
               onChange={(event) => setEmail(event.target.value)}
               autoComplete="email"
@@ -106,10 +106,10 @@ export default function OnboardingPage() {
             />
           </label>
 
-          <label className="mt-4 block text-sm font-medium">
+          <label className="mt-4 block text-sm font-medium text-[var(--ink)]">
             Password
             <input
-              className="mt-2 w-full rounded-xl border border-[var(--line)] bg-[var(--surface)] px-3 py-3"
+              className="mt-2 w-full rounded-xl border border-[var(--line)] bg-[var(--surface)] px-3 py-3 text-[var(--ink)] placeholder:text-[var(--muted)]"
               type="password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}

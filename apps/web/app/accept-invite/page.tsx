@@ -71,15 +71,15 @@ export default function AcceptInvitePage() {
           <p className="text-xs uppercase tracking-[0.35em] text-[var(--hero-accent)]">
             {brand.displayName}
           </p>
-          <h1 className="mt-4 max-w-xl font-serif text-5xl leading-tight">
+          <h1 className="mt-4 max-w-xl font-serif text-5xl leading-tight text-[var(--hero-ink)]">
             Join the workspace
           </h1>
           <p className="mt-5 max-w-lg text-base text-[var(--hero-copy)]">
             Accept your team invite to access the shared MIAF workspace with the role assigned by your admin.
           </p>
         </div>
-        <div className="rounded-2xl bg-white/8 p-4 text-sm text-[var(--hero-copy)]">
-          <p className="font-medium text-white">What happens next</p>
+        <div className="rounded-2xl border border-white/10 bg-white/12 p-4 text-sm text-[var(--hero-ink)]/90">
+          <p className="font-medium text-[var(--hero-ink)]">What happens next</p>
           <p className="mt-2">
             Your account will be created, your workspace access will be activated, and you will be signed in automatically.
           </p>
@@ -89,11 +89,11 @@ export default function AcceptInvitePage() {
       <section className="flex items-center justify-center p-6">
         <form
           onSubmit={handleSubmit}
-          className="w-full max-w-md rounded-[2rem] border border-[var(--line)] bg-[var(--panel)] p-8 shadow-[0_24px_100px_rgba(17,24,39,0.12)]"
+          className="w-full max-w-md rounded-[2rem] border border-[var(--line)] bg-[var(--panel)] p-8 text-[var(--ink)] shadow-[0_24px_100px_rgba(17,24,39,0.12)]"
         >
           <div>
             <p className="text-xs uppercase tracking-[0.3em] text-[var(--accent)]">Accept invite</p>
-            <h2 className="mt-3 text-3xl font-semibold tracking-tight">Create your account</h2>
+            <h2 className="mt-3 text-3xl font-semibold tracking-tight text-[var(--ink)]">Create your account</h2>
             <p className="mt-2 text-sm text-[var(--muted)]">
               Use a password with at least 12 characters.
             </p>
@@ -117,10 +117,10 @@ export default function AcceptInvitePage() {
             </div>
           ) : null}
 
-          <label className="mt-6 block text-sm font-medium">
+          <label className="mt-6 block text-sm font-medium text-[var(--ink)]">
             Full name
             <input
-              className="mt-2 w-full rounded-xl border border-[var(--line)] bg-[var(--surface)] px-3 py-3"
+              className="mt-2 w-full rounded-xl border border-[var(--line)] bg-[var(--surface)] px-3 py-3 text-[var(--ink)] placeholder:text-[var(--muted)]"
               value={name}
               onChange={(event) => setName(event.target.value)}
               autoComplete="name"
@@ -130,10 +130,10 @@ export default function AcceptInvitePage() {
             />
           </label>
 
-          <label className="mt-4 block text-sm font-medium">
+          <label className="mt-4 block text-sm font-medium text-[var(--ink)]">
             Password
             <input
-              className="mt-2 w-full rounded-xl border border-[var(--line)] bg-[var(--surface)] px-3 py-3"
+              className="mt-2 w-full rounded-xl border border-[var(--line)] bg-[var(--surface)] px-3 py-3 text-[var(--ink)] placeholder:text-[var(--muted)]"
               type="password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
