@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [ -f "$SCRIPT_DIR/../compose.yaml" ] && [ -d "$SCRIPT_DIR/../.git" ]; then
+  REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+  MIAF_HOME="${MIAF_HOME:-$REPO_DIR}"
+else
+  MIAF_HOME="${MIAF_HOME:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+  REPO_DIR="${MIAF_REPO_DIR:-$MIAF_HOME/repo}"
+fi
+
+COMPOSE=(docker compose -f "$REPO_DIR/compose.yaml")
+ENV_FILE="$REPO_DIR/.env"
+
+usage() {
+  cat <<EOF
+Usage: miaf <command>
+
+Commands:
+  start            Start the dev stack
+  stop             Stop the dev stack
+  restart          Restart running services
+  logs             Tail logs
+  status           Show service status
+  smoke            Run health checks
+  update           Pull latest code and rerun the installer
+  shell api        Open a shell in the api container
+  shell web        Open a shell in the web container
+EOF
+}
+
+require_repo() {
+  if [ ! -f "$REPO_DIR/compose.yaml" ]; then
+    printf 'miaf: repo not found at %s\n' "$REPO_DIR" >&2
+    exit 1
+  fi
+}
+
+require_repo
+
+run_smoke() {
+  local base_url="http://localhost"
+  local port
+
+  if [ -f "$ENV_FILE" ]; then
+    port="$(awk -F= '$1=="HTTP_PORT"{print substr($0, index($0, "=")+1)}' "$ENV_FILE" | tail -n 1)"
+    if [ -n "${port:-}" ] && [ "$port" != "80" ]; then
+      base_url="http://localhost:$port"
+    fi
+  fi
+
+  curl -fsS "${base_url}/api/health" >/dev/null
+  curl -fsS "${base_url}/api/health/ready" >/dev/null
+  printf 'MIAF health checks passed at %s\n' "$base_url"
+}
+
+cmd="${1:-}"
+case "$cmd" in
+  start)
+    "${COMPOSE[@]}" up -d
+    ;;
+  stop)
+    "${COMPOSE[@]}" down
+    ;;
+  restart)
+    "${COMPOSE[@]}" restart
+    ;;
+  logs)
+    "${COMPOSE[@]}" logs -f --tail=100
+    ;;
+  status)
+    "${COMPOSE[@]}" ps
+    ;;
+  smoke)
+    run_smoke
+    ;;
+  update)
+    MIAF_HOME="$MIAF_HOME" MIAF_REPO_DIR="$REPO_DIR" bash "$REPO_DIR/install-cli.sh"
+    ;;
+  shell)
+    case "${2:-}" in
+      api)
+        "${COMPOSE[@]}" exec api /bin/bash
+        ;;
+      web)
+        "${COMPOSE[@]}" exec web /bin/sh
+        ;;
+      *)
+        usage
+        exit 2
+        ;;
+    esac
+    ;;
+  ""|-h|--help|help)
+    usage
+    ;;
+  *)
+    usage
+    exit 2
+    ;;
+esac
