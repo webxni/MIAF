@@ -43,7 +43,10 @@ export default function LoginPage() {
 
   return (
     <main className="grid min-h-screen bg-[var(--surface)] px-6 py-12 lg:grid-cols-[1.1fr_0.9fr]">
-      <section className="flex flex-col justify-between rounded-[2rem] bg-[var(--hero)] p-8 text-[var(--hero-ink)]">
+      <section
+        className="flex flex-col justify-between rounded-[2rem] p-8 text-[var(--hero-ink)]"
+        style={{ background: "var(--hero)" }}
+      >
         <div>
           <p className="text-xs uppercase tracking-[0.35em] text-[var(--hero-accent)]">
             {brand.displayName}
