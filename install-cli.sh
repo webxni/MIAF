@@ -9,6 +9,7 @@ BIN_DIR="$MIAF_HOME/bin"
 ENV_FILE="$REPO_DIR/.env"
 ENV_EXAMPLE="$REPO_DIR/.env.example"
 APP_BASE_URL="http://localhost"
+AUTO_PORTS="${MIAF_AUTO_PORTS:-1}"
 
 log() {
   printf '[miaf-install] %s\n' "$*"
@@ -285,6 +286,68 @@ PY
   return 1
 }
 
+find_free_port() {
+  local start="${1:-20000}"
+  local end="${2:-40000}"
+  if have_cmd python3; then
+    python3 - "$start" "$end" <<'PY'
+import random
+import socket
+import sys
+
+start = int(sys.argv[1])
+end = int(sys.argv[2])
+ports = list(range(start, end + 1))
+random.shuffle(ports)
+for port in ports:
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        s.bind(("0.0.0.0", port))
+    except OSError:
+        pass
+    else:
+        print(port)
+        sys.exit(0)
+    finally:
+        try:
+            s.close()
+        except Exception:
+            pass
+sys.exit(1)
+PY
+    return $?
+  fi
+  if have_cmd python; then
+    python - "$start" "$end" <<'PY'
+import random
+import socket
+import sys
+
+start = int(sys.argv[1])
+end = int(sys.argv[2])
+ports = list(range(start, end + 1))
+random.shuffle(ports)
+for port in ports:
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        s.bind(("0.0.0.0", port))
+    except OSError:
+        pass
+    else:
+        print(port)
+        sys.exit(0)
+    finally:
+        try:
+            s.close()
+        except Exception:
+            pass
+sys.exit(1)
+PY
+    return $?
+  fi
+  return 1
+}
+
 ensure_host_ports_available() {
   local http_port https_port
   http_port="$(awk -F= '$1=="HTTP_PORT"{print substr($0, index($0, "=")+1)}' "$ENV_FILE" | tail -n 1)"
@@ -293,11 +356,27 @@ ensure_host_ports_available() {
   https_port="${https_port:-443}"
 
   if port_in_use "$http_port"; then
-    fail "host port $http_port is already in use. Edit $ENV_FILE and set HTTP_PORT to a free port such as 8080, then rerun the installer."
+    if [ "$AUTO_PORTS" = "1" ]; then
+      http_port="$(find_free_port)" || fail "could not find a free HTTP port automatically"
+      set_env_value "$ENV_FILE" "HTTP_PORT" "$http_port"
+      warn "host port 80 is busy; using HTTP_PORT=$http_port instead"
+    else
+      fail "host port $http_port is already in use. Edit $ENV_FILE and set HTTP_PORT to a free port such as 8080, then rerun the installer."
+    fi
   fi
   if [ "$https_port" != "$http_port" ] && port_in_use "$https_port"; then
-    fail "host port $https_port is already in use. Edit $ENV_FILE and set HTTPS_PORT to a free port such as 8443, then rerun the installer."
+    if [ "$AUTO_PORTS" = "1" ]; then
+      https_port="$(find_free_port)" || fail "could not find a free HTTPS port automatically"
+      while [ "$https_port" = "$http_port" ]; do
+        https_port="$(find_free_port)" || fail "could not find a distinct free HTTPS port automatically"
+      done
+      set_env_value "$ENV_FILE" "HTTPS_PORT" "$https_port"
+      warn "host port 443 is busy; using HTTPS_PORT=$https_port instead"
+    else
+      fail "host port $https_port is already in use. Edit $ENV_FILE and set HTTPS_PORT to a free port such as 8443, then rerun the installer."
+    fi
   fi
+  configure_urls
 }
 
 run_smoke() {
