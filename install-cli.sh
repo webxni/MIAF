@@ -240,6 +240,66 @@ configure_urls() {
   fi
 }
 
+port_in_use() {
+  local port="$1"
+  if have_cmd python3; then
+    python3 - "$port" <<'PY'
+import socket
+import sys
+
+port = int(sys.argv[1])
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+try:
+    s.bind(("0.0.0.0", port))
+except OSError:
+    sys.exit(0)
+finally:
+    try:
+        s.close()
+    except Exception:
+        pass
+sys.exit(1)
+PY
+    return $?
+  fi
+  if have_cmd python; then
+    python - "$port" <<'PY'
+import socket
+import sys
+
+port = int(sys.argv[1])
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+try:
+    s.bind(("0.0.0.0", port))
+except OSError:
+    sys.exit(0)
+finally:
+    try:
+        s.close()
+    except Exception:
+        pass
+sys.exit(1)
+PY
+    return $?
+  fi
+  return 1
+}
+
+ensure_host_ports_available() {
+  local http_port https_port
+  http_port="$(awk -F= '$1=="HTTP_PORT"{print substr($0, index($0, "=")+1)}' "$ENV_FILE" | tail -n 1)"
+  https_port="$(awk -F= '$1=="HTTPS_PORT"{print substr($0, index($0, "=")+1)}' "$ENV_FILE" | tail -n 1)"
+  http_port="${http_port:-80}"
+  https_port="${https_port:-443}"
+
+  if port_in_use "$http_port"; then
+    fail "host port $http_port is already in use. Edit $ENV_FILE and set HTTP_PORT to a free port such as 8080, then rerun the installer."
+  fi
+  if [ "$https_port" != "$http_port" ] && port_in_use "$https_port"; then
+    fail "host port $https_port is already in use. Edit $ENV_FILE and set HTTPS_PORT to a free port such as 8443, then rerun the installer."
+  fi
+}
+
 run_smoke() {
   log "GET ${APP_BASE_URL}/api/health"
   curl -fsS "${APP_BASE_URL}/api/health" >/dev/null
@@ -249,6 +309,7 @@ run_smoke() {
 
 start_stack() {
   configure_urls
+  ensure_host_ports_available
   log "building Docker images"
   docker compose -f "$REPO_DIR/compose.yaml" build
 
